@@ -177,7 +177,8 @@ $env:CITYGEN_RUN_NETWORK = "1"
 
 Measured on the development machine (network and machine dependent):
 
-- 0.88 km², 561 buildings: ~50 s cold (mostly Overpass), ~7.5 s with cached OSM.
+- 0.98 km² (≈1 km × 1 km), 671 buildings: ~55 s cold (mostly Overpass),
+  ~8.1 s with cached OSM.
 - 0.52 km², 404 buildings: ~58 s cold, ~6.5 s cached.
 
 ## Limits (v1)

@@ -237,11 +237,11 @@ a job that is still stopping, and `422` for schema validation failures.
 
 The dominant cold-start cost is the public Overpass request (often 30–60 s for
 a sub-km² area). With raw OSM cached, the remaining work is parsing, polygon
-cleanup, extrusion, and STL writing. For a 561-building / 0.88 km² area on the
-development machine:
+cleanup, extrusion, and STL writing. For a 671-building / 0.98 km² area
+(≈1 km × 1 km) on the development machine:
 
-- cold: ~50 s (Overpass ~44 s);
-- cached: ~7.5 s.
+- cold: ~55 s (Overpass ~49 s);
+- cached: ~8.1 s.
 
 Per-building geometry itself is fast (about 0.6 s for 400 buildings in a
 profile); the original cache-hit bottleneck was rewriting `job.json` for every
