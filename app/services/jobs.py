@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -116,7 +117,19 @@ class JobManager:
                 message="任务开始",
             )
 
+            last_progress_at = 0.0
+            last_progress_stage: str | None = None
+
             def progress(percent: int, stage: str, message: str) -> None:
+                nonlocal last_progress_at, last_progress_stage
+                now = time.monotonic()
+                # build_meshes reports every building. Rewriting job.json for
+                # each one dominates cache-hit latency on large areas, while
+                # the UI polls less than once a second anyway.
+                if stage == last_progress_stage and percent < 100 and now - last_progress_at < 0.5:
+                    return
+                last_progress_at = now
+                last_progress_stage = stage
                 self._update(
                     job_id,
                     status="running",
@@ -206,9 +219,7 @@ class JobManager:
                     error={"code": "JOB_CANCELLED", "message": "任务已取消", "detail": None},
                 )
                 return self._public(state)
-            return self._public(
-                self._update(job_id, message="正在取消…", stage="cancelling")
-            )
+            return self._public(self._update(job_id, message="正在取消…", stage="cancelling"))
 
     def delete(self, job_id: str) -> None:
         with self._lock:

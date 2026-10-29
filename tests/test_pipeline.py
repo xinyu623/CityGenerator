@@ -72,6 +72,8 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch):
     assert metadata["local_frame"]["z"] == "up"
     assert metadata["ground"]["included"] is True
     assert metadata["attribution"].startswith("© OpenStreetMap")
+    assert metadata["buildings"]["each_shell_watertight"] is True
+    assert metadata["buildings"]["non_manifold_edges"] == 0
 
     buildings = load_stl_bytes((job_dir / "output" / "buildings.stl").read_bytes())
     assert buildings.is_watertight

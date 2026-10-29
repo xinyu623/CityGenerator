@@ -6,7 +6,11 @@ from shapely.geometry import Polygon
 
 from app.services.buildings import clean_polygons, detect_overlaps, extrude_building
 from app.services.ground import build_ground
-from app.services.stl_export import export_stl_bytes, load_stl_bytes
+from app.services.stl_export import (
+    export_stl_bytes,
+    load_stl_bytes,
+    non_manifold_edge_count,
+)
 
 
 def square(size: float = 10.0) -> Polygon:
@@ -110,3 +114,17 @@ def test_binary_stl_header_has_triangle_count():
     data = export_stl_bytes(mesh)
     count = int.from_bytes(data[80:84], "little")
     assert count == len(mesh.faces)
+
+
+def test_non_manifold_edge_count_is_zero_for_closed_box():
+    mesh = trimesh.creation.box(extents=(2, 2, 2))
+    assert non_manifold_edge_count(mesh) == 0
+
+
+def test_non_manifold_edge_count_detects_touching_shells():
+    left = trimesh.creation.box(extents=(10, 10, 10))
+    right = trimesh.creation.box(extents=(10, 10, 10))
+    right.apply_translation((10, 0, 0))
+    combined = trimesh.util.concatenate([left, right])
+    combined.merge_vertices()
+    assert non_manifold_edge_count(combined) > 0

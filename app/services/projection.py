@@ -34,9 +34,7 @@ class Projector:
     _inverse: Transformer = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._inverse = Transformer.from_crs(
-            f"EPSG:{self.epsg}", "EPSG:4326", always_xy=True
-        )
+        self._inverse = Transformer.from_crs(f"EPSG:{self.epsg}", "EPSG:4326", always_xy=True)
 
     @property
     def crs(self) -> str:

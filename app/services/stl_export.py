@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
+import numpy as np
 import trimesh
 
 
@@ -63,3 +64,21 @@ def binary_stl_triangle_count(data: bytes) -> int:
     if len(data) < 84:
         raise ValueError("STL data is too short")
     return int.from_bytes(data[80:84], "little")
+
+
+def non_manifold_edge_count(mesh: trimesh.Trimesh) -> int:
+    """Count edges shared by more than two faces.
+
+    A single closed building shell has zero. A multi-shell obstacle file can
+    legitimately have some where buildings touch or overlap, so this is a
+    warning signal rather than a hard failure.
+    """
+
+    try:
+        edges = np.asarray(mesh.edges_sorted)
+        if edges.size == 0:
+            return 0
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        return int((counts > 2).sum())
+    except Exception:
+        return 0

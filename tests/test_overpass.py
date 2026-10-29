@@ -94,12 +94,16 @@ def test_raises_overpass_error_after_failures(tmp_path):
     overpass = OverpassClient(make_settings(tmp_path), client=client, sleep=lambda _: None)
     with pytest.raises(Exception) as excinfo:
         overpass.fetch(BBOX)
-    assert "OVERPASS" in str(excinfo.value.code) or "OVERPASS" in type(excinfo.value).__name__.upper()
+    assert (
+        "OVERPASS" in str(excinfo.value.code) or "OVERPASS" in type(excinfo.value).__name__.upper()
+    )
 
 
 def test_rejects_overpass_remark_error(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"elements": [], "remark": "runtime error: query timed out"})
+        return httpx.Response(
+            200, json={"elements": [], "remark": "runtime error: query timed out"}
+        )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     overpass = OverpassClient(make_settings(tmp_path), client=client, sleep=lambda _: None)

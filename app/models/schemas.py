@@ -25,10 +25,7 @@ class BBox(BaseModel):
         return (self.south, self.west, self.north, self.east)
 
     def as_overpass(self) -> str:
-        return (
-            f"{self.south:.6f},{self.west:.6f},"
-            f"{self.north:.6f},{self.east:.6f}"
-        )
+        return f"{self.south:.6f},{self.west:.6f},{self.north:.6f},{self.east:.6f}"
 
 
 class GenerateOptions(BaseModel):

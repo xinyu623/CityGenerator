@@ -29,9 +29,7 @@ def build_ground(
     if mode == "slab":
         if thickness_m <= 0.0:
             raise ValueError("slab thickness must be positive")
-        mesh = trimesh.creation.box(
-            extents=(maxx - minx, maxy - miny, float(thickness_m))
-        )
+        mesh = trimesh.creation.box(extents=(maxx - minx, maxy - miny, float(thickness_m)))
         mesh.apply_translation(
             (
                 (minx + maxx) / 2.0,

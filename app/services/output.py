@@ -15,7 +15,11 @@ from app.models.schemas import FileInfo, GenerateRequest, WarningItem
 from app.services.buildings import BuildResult
 from app.services.io_utils import utc_now_iso, write_bytes_atomic, write_json_atomic
 from app.services.projection import Projector
-from app.services.stl_export import export_stl_bytes, load_stl_bytes
+from app.services.stl_export import (
+    export_stl_bytes,
+    load_stl_bytes,
+    non_manifold_edge_count,
+)
 
 SCHEMA_VERSION = "1.0"
 
@@ -40,6 +44,7 @@ def _build_metadata(
     request: GenerateRequest,
     projector: Projector,
     build_result: BuildResult,
+    non_manifold_edges: int,
     overpass_meta: dict[str, Any],
     area_km2: float,
     ground_bounds: tuple[float, float, float, float] | None,
@@ -79,12 +84,14 @@ def _build_metadata(
             "skipped": build_result.skipped,
             "min_height_m": round(min(heights), 3) if heights else 0.0,
             "max_height_m": round(max(heights), 3) if heights else 0.0,
-            "footprint_area_m2": round(
-                sum(record.area_m2 for record in build_result.records), 3
-            ),
+            "footprint_area_m2": round(sum(record.area_m2 for record in build_result.records), 3),
             "default_height_m": request.options.default_height_m,
             "level_height_m": request.options.level_height_m,
             "embed_depth_m": request.options.embed_depth_m,
+            "each_shell_watertight": all(
+                record.mesh.is_watertight for record in build_result.records
+            ),
+            "non_manifold_edges": non_manifold_edges,
         },
         "ground": {
             "included": ground is not None,
@@ -144,14 +151,14 @@ def _readme_text(metadata: dict[str, Any]) -> str:
 
 单位：米
 局部坐标轴：+X 向东，+Y 向北，+Z 向上
-局部原点：经度 {origin['lon']}，纬度 {origin['lat']}
-投影坐标系：{metadata['crs_projected']}
-OSM 数据时间：{metadata['source']['osm_base_timestamp'] or '未知'}
+局部原点：经度 {origin["lon"]}，纬度 {origin["lat"]}
+投影坐标系：{metadata["crs_projected"]}
+OSM 数据时间：{metadata["source"]["osm_base_timestamp"] or "未知"}
 
 文件说明
 --------
 buildings.stl   所有建筑壳体。每栋建筑是封闭、法向朝外的多面体，适合作为 CFD 障碍物。
-ground.stl      地面 patch，位于 z=0（{'薄板' if ground['mode'] == 'slab' else '平面'}）。
+ground.stl      地面 patch，位于 z=0（{"薄板" if ground["mode"] == "slab" else "平面"}）。
 city.stl        buildings + ground 的拼接结果，便于预览和快速导入。
                 注意：它是多个壳体的拼接，不是单一水密实体；CFD 前处理建议使用分文件。
 metadata.json   坐标原点、投影、参数、统计、警告和数据来源。
@@ -160,7 +167,7 @@ buildings.geojson  WGS84 建筑轮廓和高度属性，可用于 GIS 核对。
 CFD 导入建议
 ------------
 1. 先分别导入 buildings.stl 和 ground.stl，并把它们指定为不同 patch。
-2. 建筑底部默认向地面以下延伸 {metadata['buildings']['embed_depth_m']} m，避免与地面共面。
+2. 建筑底部默认向地面以下延伸 {metadata["buildings"]["embed_depth_m"]} m，避免与地面共面。
 3. 在求解器中按需要建立流体域并划分体网格；本工具不生成体网格或算例文件。
 4. 如果求解器要求单一封闭表面，请先在你的前处理软件中做 surface wrap / boolean 处理。
 5. 检查模型尺度和朝向：风场入口方向可参考 +X（东）或 +Y（北）。
@@ -201,6 +208,7 @@ def write_outputs(
 
     export_mode = request.options.export_mode
     names: list[str] = []
+    written_non_manifold = 0
 
     if export_mode in {"both", "separate"}:
         building_bytes = export_stl_bytes(building_mesh)
@@ -208,6 +216,7 @@ def write_outputs(
         names.append("buildings.stl")
         try:
             loaded = load_stl_bytes(building_bytes)
+            written_non_manifold = non_manifold_edge_count(loaded)
             if len(loaded.faces) != len(building_mesh.faces):
                 warnings.append(
                     WarningItem(
@@ -216,12 +225,23 @@ def write_outputs(
                     )
                 )
             elif not loaded.is_watertight:
-                warnings.append(
-                    WarningItem(
-                        code="STL_NOT_WATERTIGHT",
-                        message="buildings.stl 回读后不是水密网格，请检查异常建筑",
+                # Each building is validated before export. In a multi-shell
+                # obstacle file, touching or overlapping buildings can make the
+                # combined mesh non-watertight even when every shell is closed.
+                # Report the actual non-manifold contacts instead of treating
+                # the whole file as broken.
+                if written_non_manifold:
+                    warnings.append(
+                        WarningItem(
+                            code="NON_MANIFOLD_CONTACTS",
+                            message=(
+                                f"buildings.stl 中有 {written_non_manifold} 条边被 3 个以上三角形共享，"
+                                "通常由相邻或重叠建筑接触引起；单栋壳体已通过校验，"
+                                "CFD 前处理可能需要处理接触面"
+                            ),
+                            count=written_non_manifold,
+                        )
                     )
-                )
         except Exception as exc:
             warnings.append(
                 WarningItem(
@@ -238,11 +258,19 @@ def write_outputs(
         write_bytes_atomic(output_dir / "city.stl", export_stl_bytes(city_mesh))
         names.append("city.stl")
 
+    if export_mode == "combined":
+        # No buildings.stl was written; estimate contacts on a merged copy so
+        # metadata still describes the building set.
+        probe = building_mesh.copy()
+        probe.merge_vertices()
+        written_non_manifold = non_manifold_edge_count(probe)
+
     metadata = _build_metadata(
         job_id=job_id,
         request=request,
         projector=projector,
         build_result=build_result,
+        non_manifold_edges=written_non_manifold,
         overpass_meta=overpass_meta,
         area_km2=area_km2,
         ground_bounds=ground_bounds,

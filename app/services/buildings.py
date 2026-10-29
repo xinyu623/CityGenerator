@@ -153,8 +153,7 @@ def project_polygon(polygon: Polygon, projector: Projector) -> Polygon:
         array = np.asarray(list(coords), dtype=float)
         easting, northing = projector.transformer.transform(array[:, 0], array[:, 1])
         return [
-            projector.to_local(float(x), float(y))
-            for x, y in zip(easting, northing, strict=True)
+            projector.to_local(float(x), float(y)) for x, y in zip(easting, northing, strict=True)
         ]
 
     exterior = ring(polygon.exterior.coords)
@@ -162,7 +161,9 @@ def project_polygon(polygon: Polygon, projector: Projector) -> Polygon:
     return Polygon(exterior, interiors)
 
 
-def project_geometry(geometry: Polygon | MultiPolygon, projector: Projector) -> Polygon | MultiPolygon:
+def project_geometry(
+    geometry: Polygon | MultiPolygon, projector: Projector
+) -> Polygon | MultiPolygon:
     if isinstance(geometry, Polygon):
         return project_polygon(geometry, projector)
     return MultiPolygon([project_polygon(part, projector) for part in geometry.geoms])

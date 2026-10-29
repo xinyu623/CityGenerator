@@ -2,9 +2,255 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>CityGenerator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>CityGenerator · OSM to CFD STL</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <link rel="stylesheet" href="/static/css/app.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
-    <p>CityGenerator is starting. The full interface is served from this directory.</p>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">CG</div>
+        <div class="brand-text">
+          <h1>CityGenerator</h1>
+          <p>OpenStreetMap → CFD STL</p>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <span class="pill">室外风环境</span>
+        <span class="pill">米制 · Z 向上</span>
+        <span class="pill subtle" id="versionPill">v0.1.0</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="map-panel" aria-label="区域选择地图">
+        <div id="map"></div>
+
+        <div class="map-toolbar">
+          <button id="drawBtn" class="button primary compact" type="button">
+            框选区域
+          </button>
+          <button id="clearBtn" class="button ghost compact" type="button" disabled>
+            清除
+          </button>
+          <span id="mapHint" class="map-hint">点击“框选区域”，然后在地图上点两个角点</span>
+        </div>
+
+        <div id="mapReadout" class="map-readout" hidden>
+          <div class="readout-item">
+            <span>东西</span>
+            <strong id="widthValue">—</strong>
+          </div>
+          <div class="readout-item">
+            <span>南北</span>
+            <strong id="heightValue">—</strong>
+          </div>
+          <div class="readout-item">
+            <span>面积</span>
+            <strong id="areaValue">—</strong>
+          </div>
+          <div class="readout-item wide">
+            <span>范围</span>
+            <code id="bboxValue">—</code>
+          </div>
+        </div>
+
+        <div class="map-note">
+          <span class="dot"></span>
+          OpenStreetMap 底图
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="step-label">STEP 01</span>
+              <h2>选择区域</h2>
+            </div>
+            <span class="badge" id="areaBadge">未选择</span>
+          </div>
+          <p class="muted">
+            在地图上框选一个矩形范围。建议先选 500 m × 500 m 左右，确认效果后再扩大。
+          </p>
+          <div class="limit-row">
+            <span>面积上限</span>
+            <strong id="maxAreaLabel">4.0 km²</strong>
+          </div>
+          <div id="selectionError" class="inline-error" hidden></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="step-label">STEP 02</span>
+              <h2>建模参数</h2>
+            </div>
+          </div>
+
+          <form id="optionsForm" autocomplete="off">
+            <div class="field-grid">
+              <label class="field">
+                <span>默认建筑高度 <em>m</em></span>
+                <input id="defaultHeight" type="number" min="2" max="300" step="0.5" value="9" />
+              </label>
+              <label class="field">
+                <span>层高 <em>m</em></span>
+                <input id="levelHeight" type="number" min="2" max="10" step="0.1" value="3" />
+              </label>
+            </div>
+
+            <label class="check-row">
+              <input id="includeGround" type="checkbox" checked />
+              <span>生成地面 patch（z = 0）</span>
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>地面模式</span>
+                <select id="groundMode">
+                  <option value="plane">平面</option>
+                  <option value="slab">薄板</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>地面外扩 <em>m</em></span>
+                <input id="groundMargin" type="number" min="0" max="500" step="1" value="0" />
+              </label>
+            </div>
+
+            <details class="advanced">
+              <summary>高级参数</summary>
+              <div class="field-grid">
+                <label class="field">
+                  <span>底部嵌入 <em>m</em></span>
+                  <input id="embedDepth" type="number" min="0" max="5" step="0.1" value="0.5" />
+                </label>
+                <label class="field">
+                  <span>简化容差 <em>m</em></span>
+                  <input id="simplify" type="number" min="0" max="2" step="0.01" value="0.05" />
+                </label>
+                <label class="field">
+                  <span>最小面积 <em>m²</em></span>
+                  <input id="minArea" type="number" min="1" max="1000" step="1" value="4" />
+                </label>
+                <label class="field">
+                  <span>导出模式</span>
+                  <select id="exportMode">
+                    <option value="both">分文件 + 合并</option>
+                    <option value="separate">仅分文件</option>
+                    <option value="combined">仅合并</option>
+                  </select>
+                </label>
+              </div>
+              <label class="check-row">
+                <input id="refresh" type="checkbox" />
+                <span>强制刷新 OSM 缓存</span>
+              </label>
+            </details>
+          </form>
+        </section>
+
+        <section class="panel run-panel">
+          <div class="panel-head">
+            <div>
+              <span class="step-label">STEP 03</span>
+              <h2>生成模型</h2>
+            </div>
+          </div>
+          <button id="generateBtn" class="button primary wide" type="button" disabled>
+            生成 STL
+          </button>
+          <p class="fine-print">
+            首次生成需要访问 Overpass，通常 10–60 秒；相同区域会命中缓存。
+          </p>
+
+          <div id="statusPanel" class="status-panel" hidden>
+            <div class="status-head">
+              <span id="statusStage">准备中</span>
+              <span id="statusPercent">0%</span>
+            </div>
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+              <div id="progressBar" class="progress-bar"></div>
+            </div>
+            <p id="statusMessage" class="status-message"></p>
+            <button id="cancelBtn" class="button ghost compact" type="button">取消任务</button>
+          </div>
+
+          <div id="errorPanel" class="inline-error" hidden></div>
+        </section>
+
+        <section id="resultPanel" class="panel result-panel" hidden>
+          <div class="panel-head">
+            <div>
+              <span class="step-label">RESULT</span>
+              <h2>生成完成</h2>
+            </div>
+            <a id="downloadBtn" class="button primary compact" href="#">下载 ZIP</a>
+          </div>
+
+          <dl id="statsGrid" class="stats-grid"></dl>
+          <div id="warnings" class="warnings"></div>
+
+          <div class="result-actions">
+            <button id="previewBtn" class="button" type="button">3D 预览</button>
+            <span id="fileSummary" class="muted small"></span>
+          </div>
+        </section>
+
+        <section class="panel hint-panel">
+          <h3>输出约定</h3>
+          <ul>
+            <li><strong>buildings.stl</strong>：每栋建筑为封闭壳体，适合作为 CFD 障碍物。</li>
+            <li><strong>ground.stl</strong>：独立地面 patch；<strong>city.stl</strong> 为合并预览。</li>
+            <li>坐标：+X 东、+Y 北、Z 向上；原点记录在 <code>metadata.json</code>。</li>
+          </ul>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>© OpenStreetMap contributors · ODbL 1.0</span>
+      <span>本地计算 · 不上传模型</span>
+    </footer>
+
+    <div id="viewerModal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="viewerTitle">
+        <div class="modal-head">
+          <div>
+            <h3 id="viewerTitle">3D 预览</h3>
+            <p id="viewerMeta" class="muted small"></p>
+          </div>
+          <button id="viewerClose" class="icon-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="viewer-wrap">
+          <div id="viewerCanvas"></div>
+          <div id="viewerStatus" class="viewer-status">加载中…</div>
+        </div>
+        <div class="modal-foot">
+          <label class="check-row small">
+            <input id="wireframeToggle" type="checkbox" />
+            <span>线框</span>
+          </label>
+          <span class="muted small">预览已转为 Y-up；下载文件仍为 Z-up。</span>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module" src="/static/js/app.js"></script>
   </body>
 </html>
