@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import threading
 from collections import Counter
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Iterable, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import trimesh
-from shapely import make_valid
+from shapely import STRtree, make_valid
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
 
@@ -231,8 +232,33 @@ def _update_bounds(
     )
 
 
+def detect_overlaps(polygons: Sequence[Polygon], min_overlap_m2: float = 0.5) -> int:
+    """Count pairs of footprints whose intersection area is significant.
+
+    Touching footprints (shared walls) have zero intersection area and are not
+    counted. The function deliberately does not union anything: merging row
+    houses would destroy per-building heights.
+    """
+
+    if len(polygons) < 2:
+        return 0
+    tree = STRtree(list(polygons))
+    pairs = tree.query(list(polygons), predicate="intersects")
+    count = 0
+    for left, right in zip(pairs[0], pairs[1], strict=False):
+        if left >= right:
+            continue
+        try:
+            area = polygons[left].intersection(polygons[right]).area
+        except Exception:
+            continue
+        if area > min_overlap_m2:
+            count += 1
+    return count
+
+
 def build_meshes(
-    features: Sequence["BuildingFeature"],
+    features: Sequence[BuildingFeature],
     projector: Projector,
     *,
     default_height_m: float = 9.0,

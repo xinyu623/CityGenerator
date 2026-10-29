@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import io
-
 import pytest
 import trimesh
 from shapely.geometry import Polygon
 
-from app.services.buildings import clean_polygons, extrude_building
+from app.services.buildings import clean_polygons, detect_overlaps, extrude_building
 from app.services.ground import build_ground
 from app.services.stl_export import export_stl_bytes, load_stl_bytes
 
@@ -69,6 +67,18 @@ def test_extrude_polygon_with_hole_is_watertight():
     mesh = extrude_building(polygon, height_m=10.0)
     assert mesh.is_watertight
     assert mesh.volume == pytest.approx((400.0 - 16.0) * 10.5)
+
+
+def test_detect_overlaps_counts_partial_overlap():
+    left = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    right = Polygon([(5, 0), (15, 0), (15, 10), (5, 10)])
+    assert detect_overlaps([left, right]) == 1
+
+
+def test_detect_overlaps_ignores_touching_footprints():
+    left = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    right = Polygon([(10, 0), (20, 0), (20, 10), (10, 10)])
+    assert detect_overlaps([left, right]) == 0
 
 
 def test_ground_plane_area_and_normals():

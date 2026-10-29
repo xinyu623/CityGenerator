@@ -32,6 +32,14 @@ class JobCancelled(CityGeneratorError):
     code = "JOB_CANCELLED"
 
 
+class JobBusyError(CityGeneratorError):
+    code = "JOB_BUSY"
+
+
+class JobNotReadyError(CityGeneratorError):
+    code = "JOB_NOT_READY"
+
+
 class BoundsError(CityGeneratorError):
     code = "BBOX_INVALID"
 
