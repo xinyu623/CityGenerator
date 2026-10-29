@@ -1,0 +1,44 @@
+"""Domain exceptions with stable API error codes."""
+
+from __future__ import annotations
+
+
+class CityGeneratorError(Exception):
+    code = "INTERNAL_ERROR"
+
+    def __init__(self, message: str, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.detail = detail
+
+
+class OverpassError(CityGeneratorError):
+    code = "OVERPASS_ERROR"
+
+
+class NoBuildingsError(CityGeneratorError):
+    code = "NO_BUILDINGS"
+
+
+class OsmParseError(CityGeneratorError):
+    code = "OSM_PARSE_ERROR"
+
+
+class GeometryError(CityGeneratorError):
+    code = "GEOMETRY_ERROR"
+
+
+class JobCancelled(CityGeneratorError):
+    code = "JOB_CANCELLED"
+
+
+class BoundsError(CityGeneratorError):
+    code = "BBOX_INVALID"
+
+
+class AreaTooLargeError(CityGeneratorError):
+    code = "AREA_TOO_LARGE"
+
+
+class TooManyBuildingsError(CityGeneratorError):
+    code = "TOO_MANY_BUILDINGS"

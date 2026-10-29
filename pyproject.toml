@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "citygenerator"
+version = "0.1.0"
+description = "Generate CFD-ready STL models from OpenStreetMap building footprints."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "httpx>=0.27",
+  "shapely>=2.0",
+  "pyproj>=3.6",
+  "numpy>=1.26",
+  "trimesh>=4.0,<6",
+  "mapbox-earcut>=1.0",
+  "osm2geojson>=0.2.9,<0.4",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+  "respx>=0.21",
+  "ruff>=0.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["static/*", "static/css/*", "static/js/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "network: tests that require internet access",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
