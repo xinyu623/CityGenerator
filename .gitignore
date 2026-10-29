@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+data/
+.superpowers/
+*.egg-info/
+dist/
+build/
+node_modules/
+.DS_Store
+Thumbs.db
