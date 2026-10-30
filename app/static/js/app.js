@@ -369,7 +369,7 @@ function preview() {
   }
   const stats = state.job.stats || {};
   openViewer({
-    urls: [{ url: cityFile.url, kind: "city" }],
+    urls: [{ url: `/api/jobs/${state.job.id}/preview.stl`, kind: "city" }],
     title: "CityGenerator · 城市实体预览",
     meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形`,
   });

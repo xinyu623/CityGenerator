@@ -257,6 +257,19 @@ class JobManager:
             raise KeyError(filename)
         return path
 
+    def preview_path(self, job_id: str) -> Path:
+        with self._lock:
+            state = self._read_state(job_id)
+        if state["status"] != "completed":
+            raise JobNotReadyError("任务尚未完成")
+        preview = self._job_dir(job_id) / "output" / "preview.stl"
+        if preview.is_file():
+            return preview
+        fallback = self._job_dir(job_id) / "output" / "city.stl"
+        if fallback.is_file():
+            return fallback
+        raise JobNotReadyError("预览文件不存在")
+
     def download_path(self, job_id: str) -> Path:
         with self._lock:
             state = self._read_state(job_id)

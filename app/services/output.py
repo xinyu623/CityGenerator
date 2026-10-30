@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import trimesh
 from shapely.geometry import mapping
+from trimesh.creation import box
 
 from app.config import Settings
 from app.models.schemas import FileInfo, GenerateRequest, WarningItem
@@ -197,6 +199,16 @@ Warnings
 """
 
 
+def _preview_mesh(build_result: BuildResult, city: FusedCity) -> trimesh.Trimesh:
+    """Build a clean display-only mesh without boolean contact patches."""
+
+    xmin, ymin, xmax, ymax = city.base_bounds
+    thickness = city.base_thickness_m
+    base = box(extents=(xmax - xmin, ymax - ymin, thickness))
+    base.apply_translation(((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, -thickness / 2.0))
+    return trimesh.util.concatenate([*build_result.meshes, base])
+
+
 def write_outputs(
     *,
     job_id: str,
@@ -215,6 +227,10 @@ def write_outputs(
 
     city_bytes = export_stl_bytes(city.mesh)
     write_bytes_atomic(output_dir / "city.stl", city_bytes)
+    write_bytes_atomic(
+        output_dir / "preview.stl",
+        export_stl_bytes(_preview_mesh(build_result, city)),
+    )
     names = ["city.stl"]
 
     loaded = load_stl_bytes(city_bytes)

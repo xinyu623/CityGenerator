@@ -19,8 +19,10 @@
 ![CityGenerator 界面](docs/images/frontend.png)
 
 内置查看器把融合后的城市呈现为暖白色建筑模型，放置在展示底座上，带柔和
-的棚拍阴影；支持左键旋转、中键平移、滚轮缩放。查看器用单一材质显示融合后的
-STL，不再额外区分建筑和地面；导出的文件仍然是一个 Z 轴向上的整体网格。
+的棚拍光照；支持左键旋转、中键平移、滚轮缩放。查看器用单一材质显示融合后的
+STL，不再额外区分建筑和地面。它加载一个仅供显示的预览网格：由干净的建筑
+壳体和平整底座组成；该预览不会列在任务文件里，也不进入 ZIP。导出的
+`city.stl` 仍然是唯一的 Z 轴向上 CFD 网格。
 
 ![CityGenerator 三维预览](docs/images/preview.png)
 
@@ -136,6 +138,7 @@ uvicorn app.main:app --reload --port 8000
 | `POST` | `/api/jobs` | 创建生成任务，返回 `202` 和 `job_id`。 |
 | `GET` | `/api/jobs/{job_id}` | 状态、进度、阶段、统计、警告和文件列表。 |
 | `GET` | `/api/jobs/{job_id}/download` | 下载 `result.zip`（仅已完成任务）。 |
+| `GET` | `/api/jobs/{job_id}/preview.stl` | 仅用于查看器的显示预览网格。 |
 | `GET` | `/api/jobs/{job_id}/files/{name}` | 下载单个输出文件。 |
 | `DELETE` | `/api/jobs/{job_id}` | 取消运行中的任务，或删除已结束任务。 |
 

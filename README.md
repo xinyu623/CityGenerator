@@ -22,10 +22,12 @@ cached on disk.
 ![CityGenerator UI](docs/images/frontend.png)
 
 The built-in viewer presents the fused city as a warm-white architectural model
-on a display plinth, with soft studio shadows and left-drag orbit, middle-drag
+on a display plinth, with soft studio lighting and left-drag orbit, middle-drag
 pan, and wheel zoom. The viewer shows the fused STL with one material so the
-preview does not invent a separate ground layer; the exported file remains one
-Z-up mesh.
+preview does not invent a separate ground layer. It loads an internal
+display-only preview mesh assembled from the clean building shells and a clean
+base; that preview is not listed in the job files or included in the ZIP. The
+exported `city.stl` remains the single Z-up CFD mesh.
 
 ![CityGenerator 3D preview](docs/images/preview.png)
 
@@ -152,6 +154,7 @@ Useful `metadata.json → city` fields:
 | `POST` | `/api/jobs` | Create a generation job. Returns `202` and `job_id`. |
 | `GET` | `/api/jobs/{job_id}` | Status, progress, stage, stats, warnings, files. |
 | `GET` | `/api/jobs/{job_id}/download` | Download `result.zip` (completed jobs only). |
+| `GET` | `/api/jobs/{job_id}/preview.stl` | Internal display-only preview mesh for the viewer. |
 | `GET` | `/api/jobs/{job_id}/files/{name}` | Download a single output file. |
 | `DELETE` | `/api/jobs/{job_id}` | Cancel a running job or delete a terminal job. |
 

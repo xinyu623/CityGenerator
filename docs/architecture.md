@@ -188,7 +188,10 @@ under metadata `city`.
 ### 7. Output bundle
 
 `write_outputs` produces `city.stl`, `metadata.json`, `buildings.geojson`,
-`README.txt`, and `result.zip`. There are no separate building or ground STLs.
+`README.txt`, and `result.zip`. There are no separate building or ground STLs in
+the job files or ZIP. It also writes an internal `preview.stl` assembled from
+the individual building shells and a clean base box; this display-only mesh
+excludes boolean welds and is served only by `/api/jobs/{id}/preview.stl`.
 Writes use a temp file + replace so a crash never leaves a half-written JSON/ZIP
 visible. The metadata schema version is `1.0`.
 
@@ -206,7 +209,7 @@ visible. The metadata schema version is `1.0`.
   rounded display plinth. Because the STL is one fused solid with no material
   groups, the viewer uses one warm-white material for the whole fused city
   rather than inferring a separate ground layer from triangle height. Soft
-  directional shadows, a PMREM studio environment, and a radial contact shadow
+  directional lighting, a PMREM studio environment, and a radial contact shadow
   give the model a physical, printed look. The viewer offers left-drag orbit,
   middle-drag pan, wheel zoom, reset, auto-rotate, and wireframe controls.
   Downloaded files remain Z-up.

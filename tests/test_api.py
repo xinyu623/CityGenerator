@@ -97,6 +97,11 @@ def test_job_lifecycle_and_download(client, monkeypatch):
     assert stl_response.headers["content-type"].startswith("model/stl")
     assert len(stl_response.content) > 84
 
+    preview_response = client.get(f"/api/jobs/{job_id}/preview.stl")
+    assert preview_response.status_code == 200
+    assert preview_response.headers["content-type"].startswith("model/stl")
+    assert len(preview_response.content) > 84
+
     assert client.delete(f"/api/jobs/{job_id}").status_code == 200
     assert client.get(f"/api/jobs/{job_id}").status_code == 404
 

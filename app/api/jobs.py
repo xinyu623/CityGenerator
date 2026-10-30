@@ -56,6 +56,18 @@ def download_job(job_id: str, request: Request) -> FileResponse:
     )
 
 
+@router.get("/jobs/{job_id}/preview.stl")
+def download_preview(job_id: str, request: Request) -> FileResponse:
+    manager = _manager(request)
+    try:
+        path = manager.preview_path(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="任务不存在") from exc
+    except JobNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
+    return FileResponse(path, media_type="model/stl", filename="preview.stl")
+
+
 @router.get("/jobs/{job_id}/files/{filename}")
 def download_file(job_id: str, filename: str, request: Request) -> FileResponse:
     manager = _manager(request)

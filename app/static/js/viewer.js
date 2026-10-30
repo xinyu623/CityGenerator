@@ -56,7 +56,7 @@ async function createRuntime() {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.78;
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.replaceChildren(renderer.domElement);
 
@@ -345,6 +345,57 @@ function fitCamera(state, box, plate, triangles) {
   if (scale) scale.textContent = `${formatMeters(size.x)} × ${formatMeters(size.z)}`;
 }
 
+function cleanPreviewGeometry(state, geometry) {
+  const THREE = state.THREE;
+  const source = geometry.index ? geometry.toNonIndexed() : geometry;
+  const position = source.getAttribute("position");
+  const normal = source.getAttribute("normal");
+  if (!position || position.count < 3) return source;
+
+  const positions = [];
+  const normals = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  const cross = new THREE.Vector3();
+  const minAltitude = 0.01;
+
+  for (let i = 0; i < position.count; i += 3) {
+    a.fromBufferAttribute(position, i);
+    b.fromBufferAttribute(position, i + 1);
+    c.fromBufferAttribute(position, i + 2);
+    ab.subVectors(b, a);
+    ac.subVectors(c, a);
+    cross.crossVectors(ab, ac);
+    const area = cross.length() * 0.5;
+    const longest = Math.max(ab.length(), ac.length(), b.distanceTo(c));
+    const altitude = longest > 0 ? (2 * area) / longest : 0;
+    if (altitude < minAltitude) continue;
+
+    for (let j = 0; j < 3; j += 1) {
+      const vertex = i + j;
+      positions.push(position.getX(vertex), position.getY(vertex), position.getZ(vertex));
+      if (normal) normals.push(normal.getX(vertex), normal.getY(vertex), normal.getZ(vertex));
+    }
+  }
+
+  if (!positions.length) return source;
+  const cleaned = new THREE.BufferGeometry();
+  cleaned.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  if (normals.length === positions.length) {
+    cleaned.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  } else {
+    cleaned.computeVertexNormals();
+  }
+  cleaned.computeBoundingBox();
+  cleaned.computeBoundingSphere();
+  source.dispose();
+  geometry.dispose();
+  return cleaned;
+}
+
 function applyWireframe(state) {
   state.modelGroup.traverse((child) => {
     if (!child.isMesh) return;
@@ -400,6 +451,7 @@ async function loadModels(urls, state) {
 
       // Preview the fused city with one material. Distinguishing a ground
       // layer adds more visual seams than it is worth for this mesh.
+      const previewGeometry = cleanPreviewGeometry(state, geometry);
       const config = MATERIALS[kind] ?? MATERIALS.city;
       const material = new state.THREE.MeshStandardMaterial({
         ...config,
@@ -408,10 +460,10 @@ async function loadModels(urls, state) {
         envMapIntensity: 0.3,
         dithering: false,
       });
-      const mesh = new state.THREE.Mesh(geometry, material);
+      const mesh = new state.THREE.Mesh(previewGeometry, material);
       mesh.name = kind;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
       state.modelGroup.add(mesh);
     }
 
