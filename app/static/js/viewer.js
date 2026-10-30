@@ -435,11 +435,14 @@ function splitCityGeometry(state, geometry) {
   const buildingNormals = [];
   const groundLevel = 0.05;
 
+  // The STL was rotated -90 degrees about X to make it Y-up. Its original
+  // Z/up coordinate is therefore the viewer's Y coordinate; using Z here would
+  // split by north/south position and paint whole buildings as ground.
   for (let i = 0; i < position.count; i += 3) {
     const elevated =
-      position.getZ(i) > groundLevel ||
-      position.getZ(i + 1) > groundLevel ||
-      position.getZ(i + 2) > groundLevel;
+      position.getY(i) > groundLevel ||
+      position.getY(i + 1) > groundLevel ||
+      position.getY(i + 2) > groundLevel;
     const positions = elevated ? buildingPositions : groundPositions;
     const normals = elevated ? buildingNormals : groundNormals;
     for (let j = 0; j < 3; j += 1) {
