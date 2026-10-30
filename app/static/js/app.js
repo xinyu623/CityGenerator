@@ -372,7 +372,6 @@ function preview() {
     urls: [{ url: cityFile.url, kind: "city" }],
     title: "CityGenerator · 城市实体预览",
     meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形`,
-    groundLevel: Number(stats.base_thickness_m) || 1.0,
   });
 }
 

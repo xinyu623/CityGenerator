@@ -204,9 +204,8 @@ visible. The metadata schema version is `1.0`.
   preview is opened. STL is Z-up; the viewer rotates it to Y-up, centers it,
   fits the projected model (not its bounding sphere), and places it on a
   rounded display plinth. Because the STL is one fused solid with no material
-  groups, the viewer splits its triangles by height at a 0.05 m threshold
-  (STL local Z; viewer Y after the Y-up rotation): building triangles use warm
-  white, ground triangles use sand. Soft
+  groups, the viewer uses one warm-white material for the whole fused city
+  rather than inferring a separate ground layer from triangle height. Soft
   directional shadows, a PMREM studio environment, and a radial contact shadow
   give the model a physical, printed look. The viewer offers left-drag orbit,
   middle-drag pan, wheel zoom, reset, auto-rotate, and wireframe controls.

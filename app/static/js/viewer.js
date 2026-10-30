@@ -136,7 +136,6 @@ async function createRuntime() {
     loader: new STLLoader(),
     visible: false,
     wireframe: false,
-    groundLevel: 1.0,
     pedestal: null,
     contactShadow: null,
     homeView: null,
@@ -399,47 +398,21 @@ async function loadModels(urls, state) {
       geometry.translate(-center.x, lift, -center.z);
       geometry.computeBoundingSphere();
 
-      // A fused city STL has no material groups. Split its base-level
-      // triangles for the viewer so the ground still reads as ground.
-      const parts =
-        kind === "city" && loaded.length === 1
-          ? splitCityGeometry(state, geometry)
-          : [{ geometry, kind }];
-      for (const part of parts) {
-        const config = MATERIALS[part.kind] ?? MATERIALS.city;
-        const material = new state.THREE.MeshStandardMaterial({
-          ...config,
-          flatShading: false,
-          side: state.THREE.DoubleSide,
-          envMapIntensity: 0.3,
-          dithering: true,
-        });
-        const mesh = new state.THREE.Mesh(part.geometry, material);
-        mesh.name = part.kind;
-        mesh.castShadow = true;
-        mesh.receiveShadow = part.kind !== "ground";
-        state.modelGroup.add(mesh);
-      }
-    }
-
-    // Boolean/triangulation seams can leave hairline cracks in the ground top.
-    // A slightly lower tan backing plate hides the plinth through those cracks
-    // without changing the STL or covering the visible ground surface.
-    if (loaded.some((item) => item.kind === "city")) {
-      const size = combined.getSize(new state.THREE.Vector3());
-      const backdrop = new state.THREE.Mesh(
-        new state.THREE.PlaneGeometry(size.x, size.z),
-        new state.THREE.MeshStandardMaterial({
-          color: COLORS.ground,
-          roughness: 0.96,
-          metalness: 0.0,
-          side: state.THREE.DoubleSide,
-        })
-      );
-      backdrop.rotation.x = -Math.PI / 2;
-      backdrop.position.set(0, state.groundLevel - 0.01, 0);
-      backdrop.name = "ground-backdrop";
-      state.modelGroup.add(backdrop);
+      // Preview the fused city with one material. Distinguishing a ground
+      // layer adds more visual seams than it is worth for this mesh.
+      const config = MATERIALS[kind] ?? MATERIALS.city;
+      const material = new state.THREE.MeshStandardMaterial({
+        ...config,
+        flatShading: false,
+        side: state.THREE.DoubleSide,
+        envMapIntensity: 0.3,
+        dithering: false,
+      });
+      const mesh = new state.THREE.Mesh(geometry, material);
+      mesh.name = kind;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      state.modelGroup.add(mesh);
     }
 
     const box = new state.THREE.Box3().setFromObject(state.modelGroup);
@@ -459,76 +432,7 @@ async function loadModels(urls, state) {
   }
 }
 
-function splitCityGeometry(state, geometry) {
-  const THREE = state.THREE;
-  const source = geometry.index ? geometry.toNonIndexed() : geometry;
-  const position = source.getAttribute("position");
-  const normal = source.getAttribute("normal");
-  if (!position) {
-    if (source !== geometry) source.dispose();
-    return [{ geometry, kind: "city" }];
-  }
-
-  const groundPositions = [];
-  const groundNormals = [];
-  const buildingPositions = [];
-  const buildingNormals = [];
-
-  // The STL was rotated -90 degrees about X to make it Y-up. Its original
-  // Z/up coordinate is therefore the viewer's Y coordinate; using Z here would
-  // split by north/south position and paint whole buildings as ground.
-  // After the model is lifted onto the plinth, the ground surface sits at the
-  // base thickness, not at y=0.
-  const threshold = state.groundLevel + 0.05;
-  for (let i = 0; i < position.count; i += 3) {
-    const elevated =
-      position.getY(i) > threshold ||
-      position.getY(i + 1) > threshold ||
-      position.getY(i + 2) > threshold;
-    const positions = elevated ? buildingPositions : groundPositions;
-    const normals = elevated ? buildingNormals : groundNormals;
-    for (let j = 0; j < 3; j += 1) {
-      const vertex = i + j;
-      positions.push(position.getX(vertex), position.getY(vertex), position.getZ(vertex));
-      if (normal) normals.push(normal.getX(vertex), normal.getY(vertex), normal.getZ(vertex));
-    }
-  }
-
-  const makePart = (positions, normals) => {
-    const part = new THREE.BufferGeometry();
-    part.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    if (normals.length === positions.length) {
-      part.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-    } else {
-      part.computeVertexNormals();
-    }
-    part.computeBoundingBox();
-    part.computeBoundingSphere();
-    return part;
-  };
-
-  const parts = [];
-  if (buildingPositions.length) {
-    parts.push({ geometry: makePart(buildingPositions, buildingNormals), kind: "buildings" });
-  }
-  if (groundPositions.length) {
-    parts.push({ geometry: makePart(groundPositions, groundNormals), kind: "ground" });
-  }
-  if (source !== geometry) source.dispose();
-  if (!parts.length) {
-    geometry.dispose();
-    return [];
-  }
-  geometry.dispose();
-  return parts;
-}
-
-export async function openViewer({
-  urls,
-  title = "3D 预览",
-  meta = "",
-  groundLevel = 1.0,
-}) {
+export async function openViewer({ urls, title = "3D 预览", meta = "" }) {
   const modal = document.getElementById("viewerModal");
   const status = document.getElementById("viewerStatus");
   document.getElementById("viewerTitle").textContent = title;
@@ -542,7 +446,6 @@ export async function openViewer({
       runtime = await createRuntime();
     }
     runtime.visible = true;
-    runtime.groundLevel = groundLevel;
     runtime.resize();
     await loadModels(urls, runtime);
   } catch (error) {

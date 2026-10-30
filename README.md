@@ -23,9 +23,9 @@ cached on disk.
 
 The built-in viewer presents the fused city as a warm-white architectural model
 on a display plinth, with soft studio shadows and left-drag orbit, middle-drag
-pan, and wheel zoom. The viewer
-splits the single STL into building and ground materials by triangle height for
-display only; the exported file remains one Z-up mesh.
+pan, and wheel zoom. The viewer shows the fused STL with one material so the
+preview does not invent a separate ground layer; the exported file remains one
+Z-up mesh.
 
 ![CityGenerator 3D preview](docs/images/preview.png)
 
