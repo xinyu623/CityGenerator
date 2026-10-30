@@ -49,6 +49,7 @@ async function createRuntime() {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
+    logarithmicDepthBuffer: true,
     powerPreference: "high-performance",
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));

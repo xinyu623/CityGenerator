@@ -26,8 +26,9 @@ on a display plinth, with soft studio lighting and left-drag orbit, middle-drag
 pan, and wheel zoom. The viewer shows the fused STL with one material so the
 preview does not invent a separate ground layer. It loads an internal
 display-only preview mesh assembled from the clean building shells and a clean
-base; that preview is not listed in the job files or included in the ZIP. The
-exported `city.stl` remains the single Z-up CFD mesh.
+base; that preview is not listed in the job files or included in the ZIP. A
+logarithmic depth buffer prevents the large ground surface from z-fighting at
+grazing angles. The exported `city.stl` remains the single Z-up CFD mesh.
 
 ![CityGenerator 3D preview](docs/images/preview.png)
 

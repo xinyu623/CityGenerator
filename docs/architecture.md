@@ -210,9 +210,10 @@ visible. The metadata schema version is `1.0`.
   groups, the viewer uses one warm-white material for the whole fused city
   rather than inferring a separate ground layer from triangle height. Soft
   directional lighting, a PMREM studio environment, and a radial contact shadow
-  give the model a physical, printed look. The viewer offers left-drag orbit,
-  middle-drag pan, wheel zoom, reset, auto-rotate, and wireframe controls.
-  Downloaded files remain Z-up.
+  give the model a physical, printed look. The renderer enables a logarithmic
+  depth buffer so large ground surfaces do not z-fight at grazing angles. The
+  viewer offers left-drag orbit, middle-drag pan, wheel zoom, reset, auto-rotate,
+  and wireframe controls. Downloaded files remain Z-up.
 - The layout is responsive: map + 390 px sidebar on desktop; stacked map and
   sidebar below 980 px; single-column fields below 620 px. The viewer footer
   wraps its legend and controls below 620 px.
