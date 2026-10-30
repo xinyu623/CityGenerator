@@ -16,6 +16,7 @@ dependencies = [
   "pyproj>=3.6",
   "numpy>=1.26",
   "trimesh>=4.0,<6",
+  "manifold3d>=3.5",
   "mapbox-earcut>=1.0",
   "osm2geojson>=0.2.9,<0.4",
   "pydantic>=2.6",

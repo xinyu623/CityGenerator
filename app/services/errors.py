@@ -28,6 +28,10 @@ class GeometryError(CityGeneratorError):
     code = "GEOMETRY_ERROR"
 
 
+class CityUnionError(CityGeneratorError):
+    code = "CITY_UNION_FAILED"
+
+
 class JobCancelled(CityGeneratorError):
     code = "JOB_CANCELLED"
 
