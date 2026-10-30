@@ -172,7 +172,7 @@ def run_pipeline(
         warnings.append(
             WarningItem(
                 code="OVERLAP_DETECTED",
-                message=f"检测到 {overlap_count} 对建筑轮廓重叠，已保留原几何，请按需处理",
+                message=f"检测到 {overlap_count} 对建筑轮廓重叠，融合时已按并集处理",
                 count=overlap_count,
             )
         )
