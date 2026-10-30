@@ -80,9 +80,10 @@ intended to be imported as one closed obstacle.
    [Manifold](https://github.com/elalish/manifold). Internal faces disappear.
 4. When two buildings touch only at an edge or corner, their volumes have no
    common interior, so the union is geometrically non-manifold. The pipeline
-   detects those exact edges after an STL round-trip and adds small cylindrical
-   weld columns (0.25 m radius) before re-running the union. The number of welds
-   is recorded as `city.weld_repairs`.
+   detects those exact edges after an STL round-trip, clusters nearby bad edges,
+   and adds a small solid weld box (0.4 m padding) around each cluster before
+   re-running the union. The number of boxes is recorded as
+   `city.weld_repairs`.
 5. The written STL is loaded again and must pass watertightness, consistent
    winding, finite vertices, positive volume, and zero non-manifold edges. A
    failure is reported as `CITY_UNION_FAILED`; the pipeline never silently falls
@@ -91,6 +92,13 @@ intended to be imported as one closed obstacle.
 Most city models need zero or a small number of welds; dense areas with many
 touching footprints can need more. They are local contact repairs, not a change
 to the overall building layout.
+
+**Why not just add a plane under everything?** The slab already closes the
+underside; the failure is above the base, where two building volumes meet along
+a vertical line without sharing interior volume. No bottom plane can turn that
+line contact into a manifold surface. A single closed solid requires a tiny
+material bridge at the contact (or a gap that keeps the buildings separate).
+The weld boxes are that bridge.
 
 ### Coordinate convention
 

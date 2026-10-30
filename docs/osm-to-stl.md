@@ -146,9 +146,10 @@ volumes have no common interior; the union has an edge shared by four faces and
 cannot be a manifold surface. The repair pass:
 
 1. merges vertices and finds every edge with more than two incident faces;
-2. adds a 0.25 m radius cylinder spanning each bad edge;
+2. clusters nearby bad edges and adds a 0.4 m padded solid box around each
+   cluster;
 3. re-runs the union;
-4. repeats up to six times if new contacts appear.
+4. repeats up to eight times if new contacts appear.
 
 The written STL is then loaded again and checked. `metadata.json → city` records
 `triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
@@ -205,7 +206,7 @@ do not assume the solver's default unit is metres.
 - No pitched/flat roof distinction; every building is a vertical prism.
 - No `building:part` or roof detail.
 - No roads, trees, or porous vegetation.
-- Touching buildings are fused with local weld columns, not reconstructed as
+- Touching buildings are fused with local weld boxes, not reconstructed as
   shared architectural walls.
 - OSM height tags are sparse and sometimes wrong.
 - Public Overpass endpoints can be slow or rate-limited; the cache helps after

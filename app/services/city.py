@@ -7,8 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import trimesh
-from trimesh.creation import cylinder
-from trimesh.geometry import align_vectors
+from trimesh.creation import box
 
 from app.services.errors import CityUnionError
 from app.services.stl_export import (
@@ -18,9 +17,9 @@ from app.services.stl_export import (
 )
 
 MANIFOLD_ENGINE = "manifold"
-MAX_WELD_PASSES = 6
-WELD_RADIUS_M = 0.25
-WELD_EXTRA_M = 0.8
+MAX_WELD_PASSES = 8
+WELD_CLUSTER_RADIUS_M = 0.5
+WELD_PAD_M = 0.4
 
 
 @dataclass(frozen=True)
@@ -40,21 +39,61 @@ def _non_manifold_edges(mesh: trimesh.Trimesh) -> np.ndarray:
     return unique[counts > 2]
 
 
-def _weld_cylinders(mesh: trimesh.Trimesh, edges: np.ndarray) -> list[trimesh.Trimesh]:
-    welds = []
-    for edge in edges:
-        start, end = mesh.vertices[edge[0]], mesh.vertices[edge[1]]
-        direction = end - start
-        length = float(np.linalg.norm(direction))
-        if length < 1e-8:
-            continue
-        weld = cylinder(
-            radius=WELD_RADIUS_M,
-            height=length + WELD_EXTRA_M,
-            sections=12,
+def _cluster_points(points: np.ndarray) -> list[list[int]]:
+    """Group nearby contact midpoints so one patch covers a dense contact."""
+
+    if not len(points):
+        return []
+
+    count = len(points)
+    parent = list(range(count))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        root_first, root_second = find(first), find(second)
+        if root_first != root_second:
+            parent[root_second] = root_first
+
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for index, point in enumerate(points[:, :2]):
+        cell = (
+            int(np.floor(point[0] / WELD_CLUSTER_RADIUS_M)),
+            int(np.floor(point[1] / WELD_CLUSTER_RADIUS_M)),
         )
-        weld.apply_transform(align_vectors([0.0, 0.0, 1.0], direction))
-        weld.apply_translation((start + end) / 2.0)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for other in buckets.get((cell[0] + dx, cell[1] + dy), ()):
+                    if np.linalg.norm(point - points[other, :2]) <= WELD_CLUSTER_RADIUS_M:
+                        union(index, other)
+        buckets.setdefault(cell, []).append(index)
+
+    groups: dict[int, list[int]] = {}
+    for index in range(count):
+        groups.setdefault(find(index), []).append(index)
+    return list(groups.values())
+
+
+def _weld_boxes(mesh: trimesh.Trimesh, edges: np.ndarray) -> list[trimesh.Trimesh]:
+    """Add small boxes that turn edge/corner contacts into solid overlaps."""
+
+    midpoints = np.asarray(
+        [(mesh.vertices[edge[0]] + mesh.vertices[edge[1]]) / 2.0 for edge in edges]
+    )
+    welds = []
+    for group in _cluster_points(midpoints):
+        endpoints = [
+            mesh.vertices[edge] for index in group for edge in (edges[index][0], edges[index][1])
+        ]
+        points = np.asarray(endpoints)
+        minimum, maximum = points.min(axis=0), points.max(axis=0)
+        size = maximum - minimum + 2.0 * WELD_PAD_M
+        weld = box(extents=size)
+        weld.apply_translation((minimum + maximum) / 2.0)
         welds.append(weld)
     return welds
 
@@ -125,7 +164,7 @@ def fuse_city(
         if not edges.size:
             probe = load_stl_bytes(export_stl_bytes(fused))
             edges = _non_manifold_edges(probe)
-        new_welds = _weld_cylinders(probe, edges)
+        new_welds = _weld_boxes(probe, edges)
         if not new_welds:
             raise CityUnionError(
                 "融合结果在 STL 回读后仍有非流形边",

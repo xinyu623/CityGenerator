@@ -169,8 +169,9 @@ covering the union of the selected bbox and all building footprints plus
 3. Write the result to binary STL, read it back, and check watertightness and
    non-manifold edges again.
 4. If the round-trip fails, merge vertices in memory, collect every edge with
-   more than two incident faces, add a 0.25 m radius cylinder spanning that edge,
-   and repeat the union. Up to six passes are allowed.
+   more than two incident faces, cluster nearby bad edges, add one solid box
+   with 0.4 m padding around each cluster, and repeat the union. Up to eight
+   passes are allowed.
 5. If the result still fails, raise `CITY_UNION_FAILED`; never fall back to
    concatenation.
 
