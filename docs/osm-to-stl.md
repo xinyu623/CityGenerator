@@ -128,37 +128,33 @@ volume > 0
 faces > 0
 ```
 
-A shell that fails is skipped and counted in `INVALID_MESH`. The remaining
-shells are concatenated into `buildings.stl`.
+A shell that fails is skipped and counted in `INVALID_MESH`. Accepted shells
+still enter the city union; `buildings.each_shell_watertight` records that every
+input shell passed its individual checks, not that the final city is watertight.
 
-### Why the combined STL may not be watertight
+## 6. Ground and city fusion
 
-`buildings.stl` is a **multi-shell obstacle file**. If two buildings touch or
-overlap, STL's shared vertex positions can be merged when the file is read back,
-creating edges shared by four triangles. `trimesh.is_watertight` on the
-concatenated mesh can therefore be false even though every individual building
-is closed. The metadata records:
+The ground is always a closed 1 m slab (configurable via
+`CITYGEN_GROUND_SLAB_THICKNESS_M`) from `-thickness` to `0`. It covers the union
+of the selected bbox and all building footprints, expanded by `ground_margin_m`.
+There is no open plane mode and no option to omit the ground: the output contract
+is one closed city.
 
-- `buildings.each_shell_watertight`: all individual shells passed;
-- `buildings.non_manifold_edges`: edge count with more than two adjacent faces;
-- a `NON_MANIFOLD_CONTACTS` warning when the written file has such edges.
+`fuse_city` boolean-unions the building shells and the slab with Manifold and
+validates the result. If two buildings touch only at an edge or corner, their
+volumes have no common interior; the union has an edge shared by four faces and
+cannot be a manifold surface. The repair pass:
 
-This is a contact/topology warning, not a claim that every building is broken.
-`city.stl` is a preview concatenation of buildings and ground and is
-intentionally not a single watertight solid.
+1. merges vertices and finds every edge with more than two incident faces;
+2. adds a 0.25 m radius cylinder spanning each bad edge;
+3. re-runs the union;
+4. repeats up to six times if new contacts appear.
 
-## 6. Ground
-
-Two ground modes are available:
-
-- **Plane** (default): two triangles at `z=0`, normal `+Z`. It is an open
-  surface, intended as a separate ground patch.
-- **Slab**: a closed box from `-thickness` to `0` (1 m by default). Useful when
-  a solver wants a solid ground volume.
-
-`ground_margin_m` expands the ground patch beyond the selected bbox. If
-`include_ground=false`, no ground file is written, but `buildings.stl` is still
-generated.
+The written STL is then loaded again and checked. `metadata.json → city` records
+`triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
+`non_manifold_edges`, `base_thickness_m`, `union_engine`, and `weld_repairs`.
+If the final file is not closed, the job fails with `CITY_UNION_FAILED` rather
+than writing a concatenated triangle soup.
 
 ## 7. Binary STL layout
 
@@ -185,17 +181,17 @@ do not assume the solver's default unit is metres.
 1. **Units.** Confirm the solver reads the STL as metres. A 100 m building
    should measure 100 units, not 100 mm or 100 ft.
 2. **Orientation.** `+Z` is up. If the solver uses Y-up, rotate `-90°` about X.
-3. **Patches.** Import `buildings.stl` and `ground.stl` separately. Name them
-   `buildings` and `ground`; avoid merging them into one patch.
+3. **Patch.** Import `city.stl` as one closed obstacle or solid. Do not split it
+   back into building and ground patches unless your solver explicitly requires
+   that.
 4. **Domain.** Create a fluid domain with an inlet, outlet, sides, and top.
    Recommended initial distances: 5H upstream, 10–15H downstream, 5H sides,
    5H top, where H is the tallest building (tune for your study).
-5. **Ground.** The ground patch is at `z=0`; building shells extend 0.5 m below
-   it. If your mesher requires a single closed ground, use the slab mode or
-   close the domain explicitly.
-6. **Contacts.** Check `NON_MANIFOLD_CONTACTS` and `OVERLAP_DETECTED` in the UI
-   or `metadata.json`. Adjacent buildings may need a local boolean/surface wrap
-   or a small separation before meshing.
+5. **Ground.** The ground slab is part of the solid; its bottom is a valid closed
+   boundary at `-1 m` by default, and the top is at `z=0`.
+6. **Contacts.** Check `OVERLAP_DETECTED` and `city.weld_repairs` in the UI or
+   `metadata.json`. Touching footprints are already fused; the weld count tells
+   you whether local contact repairs were necessary.
 7. **Heights.** Check `MISSING_HEIGHT` and `HEIGHT_CLAMPED`. A default height of
    25 m is a placeholder, not a surveyed value.
 8. **Wind direction.** The local axes are east/north. Rotate the model or the
@@ -209,12 +205,13 @@ do not assume the solver's default unit is metres.
 - No pitched/flat roof distinction; every building is a vertical prism.
 - No `building:part` or roof detail.
 - No roads, trees, or porous vegetation.
-- No boolean union; overlapping footprints remain overlapping.
+- Touching buildings are fused with local weld columns, not reconstructed as
+  shared architectural walls.
 - OSM height tags are sparse and sometimes wrong.
 - Public Overpass endpoints can be slow or rate-limited; the cache helps after
   the first request.
-- The combined `city.stl` is for preview/quick import, not a validated
-  watertight fluid-domain boundary.
+- `city.stl` is a validated closed surface, but it is not a volume mesh or a
+  complete fluid-domain boundary; you still build the outer domain.
 
 These limitations are deliberate for v1: the goal is a transparent, inspectable
 geometry pipeline with provenance and warnings, not a black-box city model.

@@ -40,7 +40,8 @@ static files are included in the Python package via `pyproject.toml`.
 | `app/services/projection.py` | UTM zone selection, `Projector`, local ↔ WGS84. |
 | `app/services/heights.py` | Parse `height`, `building:levels`, `min_height`, clamp. |
 | `app/services/buildings.py` | Clean/project footprints, extrude shells, overlap detection. |
-| `app/services/ground.py` | Ground plane or slab. |
+| `app/services/ground.py` | Solid ground slab. |
+| `app/services/city.py` | Manifold boolean union, contact weld repair, closed-city validation. |
 | `app/services/stl_export.py` | Binary STL writer/reader, validation, non-manifold edge count. |
 | `app/services/output.py` | Metadata, GeoJSON, README, ZIP, file inventory. |
 | `app/services/pipeline.py` | Orchestrates stages, progress, cancellation, warnings. |
@@ -80,8 +81,9 @@ the Overpass cache are pruned after `CITYGEN_JOB_TTL_DAYS` /
 | `parsing` | 24–34 | OSM JSON → Shapely footprints. |
 | `projecting` | 34 | UTM projector + local origin. |
 | `building` | 40–80 | Project/clean/extrude each footprint. |
-| `ground` | 82 | Ground plane/slab. |
-| `exporting` | 88 | STL validation, metadata, GeoJSON, ZIP. |
+| `ground` | 82 | Solid 1 m ground slab. |
+| `fusing` | 86 | Boolean-union buildings and base; weld edge contacts. |
+| `exporting` | 90 | STL validation, metadata, GeoJSON, ZIP. |
 | `completed` | 100 | Terminal. |
 
 The exact percentages are advisory; the UI shows the stage label and message.
@@ -149,38 +151,45 @@ Priority:
 - If `base_m <= 0` and `embed_depth_m > 0`, the shell is extended below `z=0` by
   the embed depth. This avoids a coplanar building-bottom/ground interface.
 
-The pipeline does not boolean-union buildings. Overlaps are counted with a
-Shapely `STRtree` and reported as `OVERLAP_DETECTED`; preserving individual
-heights and source attributes is more important for CFD review than producing a
-single solid.
+Individual heights and source attributes are preserved in the building records
+until extrusion. Overlaps are still counted with a Shapely `STRtree` and
+reported as `OVERLAP_DETECTED`, but all accepted shells now enter the city union.
 
-### 6. Ground and STL
+### 6. Ground, fusion, and STL
 
-Ground is either:
+The ground is always a closed slab: a box from `-ground_slab_thickness_m` to `0`,
+covering the union of the selected bbox and all building footprints plus
+`ground_margin_m`. There is no open plane mode.
 
-- `plane`: two triangles at `z=0`, normal up; not watertight by design; or
-- `slab`: a closed box from `-thickness` to `0`.
+`app/services/city.py` performs the fusion:
 
-Binary STL is written with 80-byte header, uint32 triangle count, and 50 bytes
-per triangle. `buildings.stl` is the concatenation of all closed shells.
-`city.stl` concatenates buildings and ground for preview; it is intentionally
-not a single watertight solid.
+1. Boolean-union all closed building shells plus the slab with Manifold.
+2. Validate faces, watertightness, winding, finite vertices, volume, and
+   non-manifold edges.
+3. Write the result to binary STL, read it back, and check watertightness and
+   non-manifold edges again.
+4. If the round-trip fails, merge vertices in memory, collect every edge with
+   more than two incident faces, add a 0.25 m radius cylinder spanning that edge,
+   and repeat the union. Up to six passes are allowed.
+5. If the result still fails, raise `CITY_UNION_FAILED`; never fall back to
+   concatenation.
 
-The combined `buildings.stl` can still fail `trimesh.is_watertight` when
-buildings touch or overlap, because merging coincident vertices creates
-non-manifold edges. The output therefore reports:
+Touching buildings have no shared interior, so a mathematically manifold single
+solid requires a small amount of added material at the contact. The weld columns
+are that material. `city.weld_repairs` records how many were needed.
 
-- `each_shell_watertight` per building in metadata;
-- `NON_MANIFOLD_CONTACTS` with an edge count if the combined file has edges
-  shared by more than two faces;
-- a round-trip triangle-count check for the written STL.
+Binary STL is written with an 80-byte header, uint32 triangle count, and 50 bytes
+per triangle. `write_outputs` validates the loaded file again and records
+`triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
+`non_manifold_edges`, `base_thickness_m`, `union_engine`, and `weld_repairs`
+under metadata `city`.
 
 ### 7. Output bundle
 
-`write_outputs` produces `buildings.stl`, `ground.stl`, `city.stl`,
-`metadata.json`, `buildings.geojson`, `README.txt`, and `result.zip`. Writes use
-a temp file + replace so a crash never leaves a half-written JSON/ZIP visible.
-The metadata schema version is `1.0`.
+`write_outputs` produces `city.stl`, `metadata.json`, `buildings.geojson`,
+`README.txt`, and `result.zip`. There are no separate building or ground STLs.
+Writes use a temp file + replace so a crash never leaves a half-written JSON/ZIP
+visible. The metadata schema version is `1.0`.
 
 ## Frontend
 
@@ -193,11 +202,12 @@ The metadata schema version is `1.0`.
 - `app/static/js/viewer.js` lazily imports Three.js and `STLLoader` only when the
   preview is opened. STL is Z-up; the viewer rotates it to Y-up, centers it,
   fits the projected model (not its bounding sphere), and places it on a
-  rounded display plinth. Buildings and ground are loaded separately so they can
-  use warm-white and sand materials; soft directional shadows, a PMREM studio
-  environment, and a radial contact shadow give the model a physical, printed
-  look. The viewer offers orbit, zoom, reset, auto-rotate, and wireframe
-  controls. Downloaded files remain Z-up.
+  rounded display plinth. Because the STL is one fused solid with no material
+  groups, the viewer splits its triangles by maximum vertex Z at a 0.05 m
+  threshold: building triangles use warm white, ground triangles use sand. Soft
+  directional shadows, a PMREM studio environment, and a radial contact shadow
+  give the model a physical, printed look. The viewer offers orbit, zoom, reset,
+  auto-rotate, and wireframe controls. Downloaded files remain Z-up.
 - The layout is responsive: map + 390 px sidebar on desktop; stacked map and
   sidebar below 980 px; single-column fields below 620 px. The viewer footer
   wraps its legend and controls below 620 px.
@@ -219,6 +229,7 @@ optional `detail`:
 | `OVERPASS_FAILED` | All endpoints/retries failed. |
 | `OSM_PARSE_FAILED` | OSM JSON could not be parsed. |
 | `GEOMETRY_ERROR` | Geometry construction failed. |
+| `CITY_UNION_FAILED` | Buildings and ground could not be fused into a closed city. |
 | `JOB_CANCELLED` | Cancellation observed by the worker. |
 | `SERVER_RESTARTED` | Recovered job from a previous process. |
 | `INTERNAL_ERROR` | Unexpected worker exception (logged). |
@@ -256,6 +267,7 @@ building, which is now throttled.
 ## Deliberate non-goals
 
 No terrain/DEM, roads, vegetation, water, pitched roofs, `building:part`,
-boolean union, volumetric mesh, boundary conditions, solver case generation, or
-multi-user authentication. Those are natural next layers, but mixing them into
-v1 would make the geometry and provenance harder to validate.
+volumetric mesh, boundary conditions, solver case generation, or multi-user
+authentication. Boolean fusion is now part of the pipeline, but it is deliberately
+limited to producing one closed surface; it does not reconstruct architectural
+details or merge touching buildings into shared walls.
