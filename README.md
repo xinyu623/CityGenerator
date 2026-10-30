@@ -17,7 +17,7 @@ The app is a local FastAPI service with a browser UI:
 All geometry is generated locally. OSM data is the only external input and is
 cached on disk.
 
-[中文说明](README.zh-CN.md)
+[Chinese README](README.zh-CN.md)
 
 ![CityGenerator UI](docs/images/frontend.png)
 
@@ -49,8 +49,8 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
 ```
 
-Open <http://127.0.0.1:8000/>. Use **框选区域**, click two opposite corners,
-adjust settings, and press **生成 STL**.
+Open <http://127.0.0.1:8000/>. Use **Select area**, click two opposite corners,
+adjust settings, and press **Generate STL**.
 
 The UI is in Chinese; code, comments, metadata keys, and this README are in
 English. A Chinese translation is available in [README.zh-CN.md](README.zh-CN.md).
