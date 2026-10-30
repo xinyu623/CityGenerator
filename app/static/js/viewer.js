@@ -379,19 +379,27 @@ async function loadModels(urls, state) {
       geometry.translate(-center.x, lift, -center.z);
       geometry.computeBoundingSphere();
 
-      const config = MATERIALS[kind] ?? MATERIALS.city;
-      const material = new state.THREE.MeshStandardMaterial({
-        ...config,
-        flatShading: false,
-        side: state.THREE.DoubleSide,
-        envMapIntensity: 0.3,
-        dithering: true,
-      });
-      const mesh = new state.THREE.Mesh(geometry, material);
-      mesh.name = kind;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      state.modelGroup.add(mesh);
+      // A fused city STL has no material groups. Split its base-level
+      // triangles for the viewer so the ground still reads as ground.
+      const parts =
+        kind === "city" && loaded.length === 1
+          ? splitCityGeometry(state, geometry)
+          : [{ geometry, kind }];
+      for (const part of parts) {
+        const config = MATERIALS[part.kind] ?? MATERIALS.city;
+        const material = new state.THREE.MeshStandardMaterial({
+          ...config,
+          flatShading: false,
+          side: state.THREE.DoubleSide,
+          envMapIntensity: 0.3,
+          dithering: true,
+        });
+        const mesh = new state.THREE.Mesh(part.geometry, material);
+        mesh.name = part.kind;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        state.modelGroup.add(mesh);
+      }
     }
 
     const box = new state.THREE.Box3().setFromObject(state.modelGroup);
@@ -409,6 +417,65 @@ async function loadModels(urls, state) {
     status.hidden = false;
     status.textContent = `加载失败：${error?.message || "未知错误"}`;
   }
+}
+
+function splitCityGeometry(state, geometry) {
+  const THREE = state.THREE;
+  const source = geometry.index ? geometry.toNonIndexed() : geometry;
+  const position = source.getAttribute("position");
+  const normal = source.getAttribute("normal");
+  if (!position) {
+    if (source !== geometry) source.dispose();
+    return [{ geometry, kind: "city" }];
+  }
+
+  const groundPositions = [];
+  const groundNormals = [];
+  const buildingPositions = [];
+  const buildingNormals = [];
+  const groundLevel = 0.05;
+
+  for (let i = 0; i < position.count; i += 3) {
+    const elevated =
+      position.getZ(i) > groundLevel ||
+      position.getZ(i + 1) > groundLevel ||
+      position.getZ(i + 2) > groundLevel;
+    const positions = elevated ? buildingPositions : groundPositions;
+    const normals = elevated ? buildingNormals : groundNormals;
+    for (let j = 0; j < 3; j += 1) {
+      const vertex = i + j;
+      positions.push(position.getX(vertex), position.getY(vertex), position.getZ(vertex));
+      if (normal) normals.push(normal.getX(vertex), normal.getY(vertex), normal.getZ(vertex));
+    }
+  }
+
+  const makePart = (positions, normals) => {
+    const part = new THREE.BufferGeometry();
+    part.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    if (normals.length === positions.length) {
+      part.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    } else {
+      part.computeVertexNormals();
+    }
+    part.computeBoundingBox();
+    part.computeBoundingSphere();
+    return part;
+  };
+
+  const parts = [];
+  if (buildingPositions.length) {
+    parts.push({ geometry: makePart(buildingPositions, buildingNormals), kind: "buildings" });
+  }
+  if (groundPositions.length) {
+    parts.push({ geometry: makePart(groundPositions, groundNormals), kind: "ground" });
+  }
+  if (source !== geometry) source.dispose();
+  if (!parts.length) {
+    geometry.dispose();
+    return [];
+  }
+  geometry.dispose();
+  return parts;
 }
 
 export async function openViewer({ urls, title = "3D 预览", meta = "" }) {

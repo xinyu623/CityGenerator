@@ -113,24 +113,20 @@
               </label>
             </div>
 
-            <label class="check-row">
-              <input id="includeGround" type="checkbox" checked />
-              <span>生成地面 patch（z = 0）</span>
-            </label>
-
             <div class="field-grid">
-              <label class="field">
-                <span>地面模式</span>
-                <select id="groundMode">
-                  <option value="plane">平面</option>
-                  <option value="slab">薄板</option>
-                </select>
-              </label>
               <label class="field">
                 <span>地面外扩 <em>m</em></span>
                 <input id="groundMargin" type="number" min="0" max="500" step="1" value="0" />
               </label>
+              <div class="field-note">
+                <span>输出</span>
+                <strong>city.stl · 单一密闭实体</strong>
+              </div>
             </div>
+
+            <p class="fine-print">
+              建筑与 1 m 厚实体地面会融合为一个水密表面；不再分别导出建筑和地面 STL。
+            </p>
 
             <details class="advanced">
               <summary>高级参数</summary>
@@ -146,14 +142,6 @@
                 <label class="field">
                   <span>最小面积 <em>m²</em></span>
                   <input id="minArea" type="number" min="1" max="1000" step="1" value="4" />
-                </label>
-                <label class="field">
-                  <span>导出模式</span>
-                  <select id="exportMode">
-                    <option value="both">分文件 + 合并</option>
-                    <option value="separate">仅分文件</option>
-                    <option value="combined">仅合并</option>
-                  </select>
                 </label>
               </div>
               <label class="check-row">
@@ -214,8 +202,8 @@
         <section class="panel hint-panel">
           <h3>输出约定</h3>
           <ul>
-            <li><strong>buildings.stl</strong>：每栋建筑为封闭壳体，适合作为 CFD 障碍物。</li>
-            <li><strong>ground.stl</strong>：独立地面 patch；<strong>city.stl</strong> 为合并预览。</li>
+            <li><strong>city.stl</strong>：建筑 + 1 m 实体地面融合后的单一密闭表面。</li>
+            <li>不再输出独立的建筑或地面 STL；需要分 patch 时请在前处理软件中处理。</li>
             <li>坐标：+X 东、+Y 北、Z 向上；原点记录在 <code>metadata.json</code>。</li>
           </ul>
         </section>

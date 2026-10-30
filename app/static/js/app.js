@@ -23,7 +23,8 @@ const STAGE_LABELS = {
   parsing: "解析建筑轮廓",
   projecting: "投影到米制坐标",
   building: "挤出建筑",
-  ground: "生成地面",
+  ground: "生成实体底座",
+  fusing: "融合建筑与地面",
   exporting: "写出 STL 与元数据",
   completed: "生成完成",
   failed: "生成失败",
@@ -129,15 +130,12 @@ function numberValue(id, fallback) {
 
 function readOptions() {
   return {
-    default_height_m: numberValue("defaultHeight", 9),
+    default_height_m: numberValue("defaultHeight", 25),
     level_height_m: numberValue("levelHeight", 3),
     embed_depth_m: numberValue("embedDepth", 0.5),
-    include_ground: $("includeGround").checked,
-    ground_mode: $("groundMode").value,
     ground_margin_m: numberValue("groundMargin", 0),
     simplify_m: numberValue("simplify", 0.05),
     min_building_area_m2: numberValue("minArea", 4),
-    export_mode: $("exportMode").value,
   };
 }
 
@@ -269,7 +267,7 @@ function renderResult(job) {
   addStat("高度来源", `${formatInt(sources.tag)} / ${formatInt(sources.levels)} / ${formatInt(sources.default)}`);
   addStat("跳过", formatInt(stats.skipped));
   addStat("重叠", formatInt(stats.overlaps));
-  addStat("地面", stats.ground_mode === "none" ? "无" : stats.ground_mode);
+  addStat("密闭", stats.city_watertight ? "是" : "否");
   addStat("OSM 数据", formatTimestamp(stats.osm_base_timestamp));
 
   const warnings = job.warnings || [];
@@ -364,27 +362,15 @@ async function cancel() {
 
 function preview() {
   if (!state.job || state.job.status !== "completed") return;
-  const files = new Map((state.job.files || []).map((file) => [file.name, file]));
-  let urls = [];
-
-  if (files.has("buildings.stl")) {
-    urls.push({ url: files.get("buildings.stl").url, kind: "buildings" });
-  }
-  if (files.has("ground.stl")) {
-    urls.push({ url: files.get("ground.stl").url, kind: "ground" });
-  }
-  if (!urls.length && files.has("city.stl")) {
-    urls = [{ url: files.get("city.stl").url, kind: "city" }];
-  }
-
-  if (!urls.length) {
-    showError("当前结果没有可预览的 STL 文件。");
+  const cityFile = (state.job.files || []).find((file) => file.name === "city.stl");
+  if (!cityFile) {
+    showError("当前结果没有可预览的 city.stl 文件。");
     return;
   }
   const stats = state.job.stats || {};
   openViewer({
-    urls,
-    title: "CityGenerator · 3D 预览",
+    urls: [{ url: cityFile.url, kind: "city" }],
+    title: "CityGenerator · 城市实体预览",
     meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形`,
   });
 }
