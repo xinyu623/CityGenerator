@@ -360,7 +360,7 @@ function cleanPreviewGeometry(state, geometry) {
   const ab = new THREE.Vector3();
   const ac = new THREE.Vector3();
   const cross = new THREE.Vector3();
-  const minAltitude = 0.01;
+  const minAltitude = 0.15;
 
   for (let i = 0; i < position.count; i += 3) {
     a.fromBufferAttribute(position, i);
