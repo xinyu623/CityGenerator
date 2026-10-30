@@ -222,6 +222,7 @@ def run_pipeline(
         "city_triangles": len(city.mesh.faces),
         "city_watertight": bool(city.mesh.is_watertight),
         "base_thickness_m": city.base_thickness_m,
+        "weld_repairs": city.weld_repairs,
         "height_sources": dict(build_result.height_sources),
         "skipped": build_result.skipped,
         "overlaps": overlap_count,

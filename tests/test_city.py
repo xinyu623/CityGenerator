@@ -5,7 +5,11 @@ from trimesh.creation import box
 
 from app.services.city import FusedCity, fuse_city
 from app.services.errors import CityUnionError
-from app.services.stl_export import non_manifold_edge_count
+from app.services.stl_export import (
+    export_stl_bytes,
+    load_stl_bytes,
+    non_manifold_edge_count,
+)
 
 
 def _slab() -> trimesh.Trimesh:
@@ -41,6 +45,20 @@ def test_fused_city_drops_internal_faces() -> None:
 
     naive_triangles = len(outer.faces) + len(inner.faces) + len(slab.faces)
     assert len(fused.mesh.faces) < naive_triangles
+
+
+def test_edge_touching_buildings_survive_stl_roundtrip() -> None:
+    first = box(extents=(10.0, 10.0, 20.0))
+    first.apply_translation((0.0, 0.0, 9.5))
+    second = box(extents=(10.0, 10.0, 20.0))
+    second.apply_translation((10.0, 10.0, 9.5))
+
+    fused = fuse_city([first, second], _slab())
+    loaded = load_stl_bytes(export_stl_bytes(fused.mesh))
+
+    assert fused.weld_repairs > 0
+    assert loaded.is_watertight
+    assert non_manifold_edge_count(loaded) == 0
 
 
 def test_fused_city_rejects_open_building() -> None:

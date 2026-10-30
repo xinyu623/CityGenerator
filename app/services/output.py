@@ -107,6 +107,7 @@ def _build_metadata(
             "non_manifold_edges": non_manifold_edges,
             "base_thickness_m": city.base_thickness_m,
             "union_engine": city.engine,
+            "weld_repairs": city.weld_repairs,
         },
         "source": {
             "provider": "OpenStreetMap",
