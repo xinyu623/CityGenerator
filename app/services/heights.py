@@ -68,7 +68,7 @@ class HeightInfo:
 
 def resolve_height(
     tags: Mapping[str, Any],
-    default_height_m: float = 9.0,
+    default_height_m: float = 25.0,
     level_height_m: float = 3.0,
 ) -> HeightInfo:
     """Resolve total height and base elevation from OSM tags.

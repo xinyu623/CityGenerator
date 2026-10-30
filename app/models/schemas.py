@@ -29,7 +29,7 @@ class BBox(BaseModel):
 
 
 class GenerateOptions(BaseModel):
-    default_height_m: float = Field(default=9.0, ge=2.0, le=300.0)
+    default_height_m: float = Field(default=25.0, ge=2.0, le=300.0)
     level_height_m: float = Field(default=3.0, ge=2.0, le=10.0)
     embed_depth_m: float = Field(default=0.5, ge=0.0, le=5.0)
     include_ground: bool = True

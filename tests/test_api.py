@@ -33,7 +33,7 @@ def test_health_and_config(client):
     payload = config.json()
     assert payload["max_area_km2"] > 0
     assert payload["attribution"].startswith("© OpenStreetMap")
-    assert payload["defaults"]["default_height_m"] == 9.0
+    assert payload["defaults"]["default_height_m"] == 25.0
 
 
 def test_invalid_bbox_is_rejected(client):

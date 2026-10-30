@@ -73,7 +73,7 @@ For each footprint, height is resolved in this order:
 1. **`height` tag.** Examples: `12`, `12 m`, `12.5m`, `40'` (feet). The parser
    extracts the first number and converts feet to metres.
 2. **Levels.** `building:levels × level_height`, plus `roof:height` if present.
-3. **Default.** `default_height_m` (9 m by default).
+3. **Default.** `default_height_m` (25 m by default).
 
 `min_height` raises the base of the prism. If a height is outside the accepted
 range it is clamped and a `HEIGHT_CLAMPED` warning is emitted. A missing height
@@ -197,7 +197,7 @@ do not assume the solver's default unit is metres.
    or `metadata.json`. Adjacent buildings may need a local boolean/surface wrap
    or a small separation before meshing.
 7. **Heights.** Check `MISSING_HEIGHT` and `HEIGHT_CLAMPED`. A default height of
-   9 m is a placeholder, not a surveyed value.
+   25 m is a placeholder, not a surveyed value.
 8. **Wind direction.** The local axes are east/north. Rotate the model or the
    domain to align the inlet with the study's prevailing wind.
 9. **Mesh.** This tool stops at surface STL. Volume meshing, boundary layers,

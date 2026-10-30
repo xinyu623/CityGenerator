@@ -105,7 +105,7 @@
             <div class="field-grid">
               <label class="field">
                 <span>默认建筑高度 <em>m</em></span>
-                <input id="defaultHeight" type="number" min="2" max="300" step="0.5" value="9" />
+                <input id="defaultHeight" type="number" min="2" max="300" step="0.5" value="25" />
               </label>
               <label class="field">
                 <span>层高 <em>m</em></span>
@@ -238,14 +238,31 @@
         </div>
         <div class="viewer-wrap">
           <div id="viewerCanvas"></div>
+          <div class="viewer-tag"><span class="viewer-tag-dot"></span>CFD 障碍物 · 1:1</div>
+          <div class="viewer-hint">拖拽旋转 · 滚轮缩放</div>
           <div id="viewerStatus" class="viewer-status">加载中…</div>
         </div>
         <div class="modal-foot">
-          <label class="check-row small">
-            <input id="wireframeToggle" type="checkbox" />
-            <span>线框</span>
-          </label>
-          <span class="muted small">预览已转为 Y-up；下载文件仍为 Z-up。</span>
+          <div class="viewer-legend">
+            <span><i class="legend-swatch building"></i>建筑</span>
+            <span><i class="legend-swatch ground"></i>地面</span>
+            <span id="viewerScale" class="viewer-scale">—</span>
+          </div>
+          <div class="viewer-actions">
+            <button id="viewerReset" class="viewer-action" type="button">重置视角</button>
+            <button
+              id="viewerRotate"
+              class="viewer-action is-active"
+              type="button"
+              aria-pressed="true"
+            >
+              暂停旋转
+            </button>
+            <label class="viewer-check">
+              <input id="wireframeToggle" type="checkbox" />
+              <span>线框</span>
+            </label>
+          </div>
         </div>
       </div>
     </div>

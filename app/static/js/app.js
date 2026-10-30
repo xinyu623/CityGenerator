@@ -5,7 +5,13 @@ import {
   getJob,
 } from "./api.js";
 import { createMapController } from "./map.js";
-import { closeViewer, openViewer, setWireframe } from "./viewer.js";
+import {
+  closeViewer,
+  openViewer,
+  resetView,
+  setWireframe,
+  toggleAutoRotate,
+} from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -361,15 +367,14 @@ function preview() {
   const files = new Map((state.job.files || []).map((file) => [file.name, file]));
   let urls = [];
 
-  if (files.has("city.stl")) {
+  if (files.has("buildings.stl")) {
+    urls.push({ url: files.get("buildings.stl").url, kind: "buildings" });
+  }
+  if (files.has("ground.stl")) {
+    urls.push({ url: files.get("ground.stl").url, kind: "ground" });
+  }
+  if (!urls.length && files.has("city.stl")) {
     urls = [{ url: files.get("city.stl").url, kind: "city" }];
-  } else {
-    if (files.has("buildings.stl")) {
-      urls.push({ url: files.get("buildings.stl").url, kind: "buildings" });
-    }
-    if (files.has("ground.stl")) {
-      urls.push({ url: files.get("ground.stl").url, kind: "ground" });
-    }
   }
 
   if (!urls.length) {
@@ -410,6 +415,8 @@ function bindEvents() {
   $("viewerModal").addEventListener("click", (event) => {
     if (event.target === $("viewerModal")) closeViewer();
   });
+  $("viewerReset").addEventListener("click", resetView);
+  $("viewerRotate").addEventListener("click", toggleAutoRotate);
   $("wireframeToggle").addEventListener("change", (event) => {
     setWireframe(event.target.checked);
   });

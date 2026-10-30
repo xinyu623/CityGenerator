@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     cache_ttl_days: int = 7
 
     # Defaults echoed by /api/config and used by the UI.
-    default_height_m: float = 9.0
+    default_height_m: float = 25.0
     level_height_m: float = 3.0
     embed_depth_m: float = 0.5
     simplify_m: float = 0.05

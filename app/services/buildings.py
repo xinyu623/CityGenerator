@@ -262,7 +262,7 @@ def build_meshes(
     features: Sequence[BuildingFeature],
     projector: Projector,
     *,
-    default_height_m: float = 9.0,
+    default_height_m: float = 25.0,
     level_height_m: float = 3.0,
     embed_depth_m: float = 0.5,
     simplify_m: float = 0.05,

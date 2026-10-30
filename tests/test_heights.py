@@ -65,6 +65,12 @@ def test_resolve_height_uses_default_when_missing():
     assert info.source == "default"
 
 
+def test_resolve_height_default_is_25_m():
+    info = resolve_height({})
+    assert info.height_m == pytest.approx(25.0)
+    assert info.source == "default"
+
+
 def test_resolve_height_uses_min_height_and_min_level():
     info = resolve_height({"height": "20", "min_height": "4"})
     assert info.base_m == 4.0

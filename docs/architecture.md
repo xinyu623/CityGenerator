@@ -130,7 +130,7 @@ Priority:
 
 1. `height` tag (supports `12`, `12 m`, `12.5m`, feet values such as `40'`).
 2. `building:levels × level_height + roof:height` (if levels are present).
-3. Default height (9 m).
+3. Default height (25 m).
 
 `min_height` raises the base. Heights are clamped to a safe range and produce
 `HEIGHT_CLAMPED`; missing heights produce `MISSING_HEIGHT`.
@@ -192,9 +192,15 @@ The metadata schema version is `1.0`.
   polling, progress, warnings, result cards, and cancel.
 - `app/static/js/viewer.js` lazily imports Three.js and `STLLoader` only when the
   preview is opened. STL is Z-up; the viewer rotates it to Y-up, centers it,
-  fits the camera, and adds a grid/axes. Downloaded files remain Z-up.
+  fits the projected model (not its bounding sphere), and places it on a
+  rounded display plinth. Buildings and ground are loaded separately so they can
+  use warm-white and sand materials; soft directional shadows, a PMREM studio
+  environment, and a radial contact shadow give the model a physical, printed
+  look. The viewer offers orbit, zoom, reset, auto-rotate, and wireframe
+  controls. Downloaded files remain Z-up.
 - The layout is responsive: map + 390 px sidebar on desktop; stacked map and
-  sidebar below 980 px; single-column fields below 620 px.
+  sidebar below 980 px; single-column fields below 620 px. The viewer footer
+  wraps its legend and controls below 620 px.
 
 The frontend deliberately has no build chain. This keeps deployment to
 `pip install` + `uvicorn`, at the cost of relying on CDN availability for

@@ -17,6 +17,12 @@ cached on disk).
 
 ![CityGenerator UI](docs/images/frontend.png)
 
+The built-in 3D viewer presents the two STL patches as a warm-white architectural
+model on a display plinth, with soft studio shadows and orbit controls. It is a
+presentation layer only; the exported geometry remains the unchanged Z-up STL.
+
+![CityGenerator 3D preview](docs/images/preview.png)
+
 ## Quick start
 
 Requirements: Python 3.11+, internet access for the first Overpass request and
@@ -89,7 +95,7 @@ intentionally a concatenation and is **not** watertight.
    aligned with `+X` (east) or `+Y` (north); rotate the model or the domain as
    needed.
 6. Missing `height` tags use `building:levels × level height`, then the default
-   height (9 m). Review `MISSING_HEIGHT` warnings before production runs.
+   height (25 m). Review `MISSING_HEIGHT` warnings before production runs.
 
 ## API
 
@@ -109,7 +115,7 @@ Example request:
 {
   "bbox": { "south": 28.19, "west": 112.97, "north": 28.196, "east": 112.978 },
   "options": {
-    "default_height_m": 9,
+    "default_height_m": 25,
     "level_height_m": 3,
     "embed_depth_m": 0.5,
     "include_ground": true,
@@ -150,7 +156,7 @@ Useful defaults:
 
 - Maximum selection area: `4 km²`.
 - Maximum accepted buildings: `20,000`.
-- Default height: `9 m`; level height: `3 m`.
+- Default height: `25 m`; level height: `3 m`.
 - Bottom embed depth: `0.5 m`; polygon simplification: `0.05 m`.
 - Ground slab thickness: `1 m`.
 - Job retention / Overpass cache retention: `7 days`.
