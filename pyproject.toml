@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "citygenerator"
-version = "0.1.0"
+version = "1.0.0"
 description = "Generate CFD-ready STL models from OpenStreetMap building footprints."
 readme = "README.md"
 requires-python = ">=3.11"
