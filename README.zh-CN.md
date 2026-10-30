@@ -61,7 +61,7 @@ uvicorn app.main:app --reload --port 8000
 | `metadata.json` | 模式版本、本地原点、CRS、参数、统计、警告、数据来源和城市实体校验结果。 |
 | `buildings.geojson` | WGS84 建筑轮廓，含高度、基底、来源和筛选后的标签。 |
 | `README.txt` | 简短说明和 CFD 导入建议。 |
-| `result.zip` | 上述全部文件的压缩包。 |
+| `result.zip` | 包含上述四个文件的压缩包（不包含自身）。 |
 
 **不再分别输出 `buildings.stl` 和 `ground.stl`**。城市实体按一个闭合障碍物
 导入。

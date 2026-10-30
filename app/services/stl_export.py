@@ -69,9 +69,9 @@ def binary_stl_triangle_count(data: bytes) -> int:
 def non_manifold_edge_count(mesh: trimesh.Trimesh) -> int:
     """Count edges shared by more than two faces.
 
-    A single closed building shell has zero. A multi-shell obstacle file can
-    legitimately have some where buildings touch or overlap, so this is a
-    warning signal rather than a hard failure.
+    A single closed building shell has zero. The fused city is rejected if this
+    count is nonzero after an STL round-trip; contact welds are added until the
+    city is manifold.
     """
 
     try:

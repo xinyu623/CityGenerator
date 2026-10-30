@@ -65,7 +65,7 @@ A completed job contains:
 | `metadata.json` | Schema version, local origin, CRS, options, statistics, warnings, source provenance, and city validation results. |
 | `buildings.geojson` | WGS84 footprints with height, base, source, and selected tags. |
 | `README.txt` | Short human-readable notes and CFD import guidance. |
-| `result.zip` | ZIP containing all of the above. |
+| `result.zip` | ZIP containing the four files above (it does not contain itself). |
 
 There are **no separate `buildings.stl` or `ground.stl` files**. The city is
 intended to be imported as one closed obstacle.
