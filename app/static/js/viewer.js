@@ -67,9 +67,23 @@ async function createRuntime() {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.065;
-  controls.enablePan = false;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
+  controls.mouseButtons = {
+    LEFT: THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.PAN,
+    RIGHT: null,
+  };
   controls.rotateSpeed = 0.55;
   controls.zoomSpeed = 0.8;
+
+  // Middle-drag pans the model; suppress the browser's autoscroll cursor.
+  renderer.domElement.addEventListener("mousedown", (event) => {
+    if (event.button === 1) event.preventDefault();
+  });
+  renderer.domElement.addEventListener("auxclick", (event) => {
+    if (event.button === 1) event.preventDefault();
+  });
   controls.minPolarAngle = Math.PI * 0.14;
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.autoRotate = true;
@@ -122,6 +136,7 @@ async function createRuntime() {
     loader: new STLLoader(),
     visible: false,
     wireframe: false,
+    groundLevel: 1.0,
     pedestal: null,
     contactShadow: null,
     homeView: null,
@@ -248,6 +263,11 @@ function setShadowBounds(state, plate) {
   camera.near = 0.1;
   camera.far = extent * 8;
   camera.updateProjectionMatrix();
+
+  // A fixed 2 cm bias is far too small for a city measured in kilometres and
+  // produces self-shadow banding across the ground slab. Scale it with the
+  // shadow frustum instead.
+  keyLight.shadow.normalBias = Math.max(0.05, Math.min(extent * 0.0015, 1.5));
 
   keyLight.position.set(
     plate.center.x + extent * 0.72,
@@ -397,9 +417,29 @@ async function loadModels(urls, state) {
         const mesh = new state.THREE.Mesh(part.geometry, material);
         mesh.name = part.kind;
         mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.receiveShadow = part.kind !== "ground";
         state.modelGroup.add(mesh);
       }
+    }
+
+    // Boolean/triangulation seams can leave hairline cracks in the ground top.
+    // A slightly lower tan backing plate hides the plinth through those cracks
+    // without changing the STL or covering the visible ground surface.
+    if (loaded.some((item) => item.kind === "city")) {
+      const size = combined.getSize(new state.THREE.Vector3());
+      const backdrop = new state.THREE.Mesh(
+        new state.THREE.PlaneGeometry(size.x, size.z),
+        new state.THREE.MeshStandardMaterial({
+          color: COLORS.ground,
+          roughness: 0.96,
+          metalness: 0.0,
+          side: state.THREE.DoubleSide,
+        })
+      );
+      backdrop.rotation.x = -Math.PI / 2;
+      backdrop.position.set(0, state.groundLevel - 0.01, 0);
+      backdrop.name = "ground-backdrop";
+      state.modelGroup.add(backdrop);
     }
 
     const box = new state.THREE.Box3().setFromObject(state.modelGroup);
@@ -433,16 +473,18 @@ function splitCityGeometry(state, geometry) {
   const groundNormals = [];
   const buildingPositions = [];
   const buildingNormals = [];
-  const groundLevel = 0.05;
 
   // The STL was rotated -90 degrees about X to make it Y-up. Its original
   // Z/up coordinate is therefore the viewer's Y coordinate; using Z here would
   // split by north/south position and paint whole buildings as ground.
+  // After the model is lifted onto the plinth, the ground surface sits at the
+  // base thickness, not at y=0.
+  const threshold = state.groundLevel + 0.05;
   for (let i = 0; i < position.count; i += 3) {
     const elevated =
-      position.getY(i) > groundLevel ||
-      position.getY(i + 1) > groundLevel ||
-      position.getY(i + 2) > groundLevel;
+      position.getY(i) > threshold ||
+      position.getY(i + 1) > threshold ||
+      position.getY(i + 2) > threshold;
     const positions = elevated ? buildingPositions : groundPositions;
     const normals = elevated ? buildingNormals : groundNormals;
     for (let j = 0; j < 3; j += 1) {
@@ -481,7 +523,12 @@ function splitCityGeometry(state, geometry) {
   return parts;
 }
 
-export async function openViewer({ urls, title = "3D 预览", meta = "" }) {
+export async function openViewer({
+  urls,
+  title = "3D 预览",
+  meta = "",
+  groundLevel = 1.0,
+}) {
   const modal = document.getElementById("viewerModal");
   const status = document.getElementById("viewerStatus");
   document.getElementById("viewerTitle").textContent = title;
@@ -495,6 +542,7 @@ export async function openViewer({ urls, title = "3D 预览", meta = "" }) {
       runtime = await createRuntime();
     }
     runtime.visible = true;
+    runtime.groundLevel = groundLevel;
     runtime.resize();
     await loadModels(urls, runtime);
   } catch (error) {
