@@ -45,7 +45,9 @@ def test_fused_city_drops_internal_faces() -> None:
 
 def test_fused_city_rejects_open_building() -> None:
     closed = box(extents=(10.0, 10.0, 20.0))
-    open_building = trimesh.Trimesh(vertices=closed.vertices, faces=closed.faces[:-1], process=False)
+    open_building = trimesh.Trimesh(
+        vertices=closed.vertices, faces=closed.faces[:-1], process=False
+    )
 
     try:
         fuse_city([open_building], _slab())

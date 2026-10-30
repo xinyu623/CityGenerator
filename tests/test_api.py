@@ -86,9 +86,12 @@ def test_job_lifecycle_and_download(client, monkeypatch):
     assert download.status_code == 200
     assert download.headers["content-type"].startswith("application/zip")
     with zipfile.ZipFile(__import__("io").BytesIO(download.content)) as archive:
-        assert "buildings.stl" in archive.namelist()
+        names = archive.namelist()
+        assert "city.stl" in names
+        assert "buildings.stl" not in names
+        assert "ground.stl" not in names
 
-    stl_file = next(item for item in job["files"] if item["name"] == "buildings.stl")
+    stl_file = next(item for item in job["files"] if item["name"] == "city.stl")
     stl_response = client.get(stl_file["url"])
     assert stl_response.status_code == 200
     assert stl_response.headers["content-type"].startswith("model/stl")

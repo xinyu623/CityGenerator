@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import trimesh
 from pyproj import Geod
 
 from app.config import Settings
@@ -18,6 +17,7 @@ from app.services.buildings import (
     build_meshes,
     detect_overlaps,
 )
+from app.services.city import fuse_city
 from app.services.errors import (
     AreaTooLargeError,
     JobCancelled,
@@ -178,28 +178,30 @@ def run_pipeline(
         )
 
     check_cancel()
-    progress(82, "ground", "生成地面")
+    progress(82, "ground", "生成实体地面底座")
 
     bbox_bounds = bbox_local_bounds(projector, request)
     combined_bounds = _union_bounds(bbox_bounds, build_result.bounds)
     assert combined_bounds is not None
     margin = request.options.ground_margin_m
-    ground_bounds = (
+    base_bounds = (
         combined_bounds[0] - margin,
         combined_bounds[1] - margin,
         combined_bounds[2] + margin,
         combined_bounds[3] + margin,
     )
-    ground: trimesh.Trimesh | None = None
-    if request.options.include_ground:
-        ground = build_ground(
-            ground_bounds,
-            mode=request.options.ground_mode,
-            thickness_m=settings.ground_slab_thickness_m,
-        )
+    base = build_ground(
+        base_bounds,
+        mode="slab",
+        thickness_m=settings.ground_slab_thickness_m,
+    )
 
     check_cancel()
-    progress(88, "exporting", "写出 STL、元数据和下载包")
+    progress(86, "fusing", "融合建筑与地面")
+    city = fuse_city(build_result.meshes, base)
+
+    check_cancel()
+    progress(90, "exporting", "写出 STL、元数据和下载包")
 
     bundle = write_outputs(
         job_id=job_dir.name,
@@ -209,21 +211,22 @@ def run_pipeline(
         build_result=build_result,
         overpass_meta=fetched.meta,
         area_km2=area,
-        ground_bounds=ground_bounds if ground is not None else None,
-        ground=ground,
+        city=city,
         settings=settings,
         warnings=warnings,
     )
 
     stats: dict[str, Any] = {
         "buildings": len(build_result.records),
-        "triangles": bundle.triangle_count,
+        "triangles": len(city.mesh.faces),
+        "city_triangles": len(city.mesh.faces),
+        "city_watertight": bool(city.mesh.is_watertight),
+        "base_thickness_m": city.base_thickness_m,
         "height_sources": dict(build_result.height_sources),
         "skipped": build_result.skipped,
         "overlaps": overlap_count,
         "area_km2": round(area, 4),
         "from_cache": fetched.from_cache,
-        "ground_mode": request.options.ground_mode if ground is not None else "none",
         "osm_base_timestamp": fetched.meta.get("osm_base_timestamp", ""),
     }
     progress(100, "completed", "生成完成")

@@ -12,7 +12,7 @@ from app.models.schemas import BBox, GenerateOptions, GenerateRequest
 from app.services.errors import AreaTooLargeError, NoBuildingsError
 from app.services.overpass import OverpassResult
 from app.services.pipeline import run_pipeline
-from app.services.stl_export import load_stl_bytes
+from app.services.stl_export import load_stl_bytes, non_manifold_edge_count
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "overpass_tiny.json"
 RAW = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -63,24 +63,32 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch):
 
     with zipfile.ZipFile(result.zip_path) as archive:
         names = set(archive.namelist())
-    assert {"buildings.stl", "ground.stl", "city.stl", "metadata.json", "README.txt"} <= names
+    assert {"city.stl", "metadata.json", "README.txt"} <= names
+    assert "buildings.stl" not in names
+    assert "ground.stl" not in names
     assert "buildings.geojson" in names
+    assert [name for name in names if name.endswith(".stl")] == ["city.stl"]
 
     metadata = json.loads((job_dir / "output" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["buildings"]["count"] == 3
     assert metadata["crs_projected"] == "EPSG:32649"
     assert metadata["local_frame"]["z"] == "up"
     assert metadata["ground"]["included"] is True
+    assert metadata["ground"]["mode"] == "slab"
     assert metadata["attribution"].startswith("© OpenStreetMap")
     assert metadata["buildings"]["each_shell_watertight"] is True
-    assert metadata["buildings"]["non_manifold_edges"] == 0
-
-    buildings = load_stl_bytes((job_dir / "output" / "buildings.stl").read_bytes())
-    assert buildings.is_watertight
-    assert len(buildings.faces) > 0
+    assert metadata["city"]["watertight"] is True
+    assert metadata["city"]["winding_consistent"] is True
+    assert metadata["city"]["non_manifold_edges"] == 0
+    assert metadata["city"]["union_engine"] == "manifold"
+    assert metadata["city"]["triangle_count"] == result.stats["triangles"]
 
     city = load_stl_bytes((job_dir / "output" / "city.stl").read_bytes())
-    assert len(city.faces) > len(buildings.faces)
+    assert city.is_watertight
+    assert city.is_winding_consistent
+    assert city.volume > 0.0
+    assert non_manifold_edge_count(city) == 0
+    assert len(city.faces) > 0
 
 
 def test_pipeline_rejects_oversized_area(tmp_path, monkeypatch):

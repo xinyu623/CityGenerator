@@ -1,4 +1,4 @@
-"""Write STL, metadata, GeoJSON, README, and the download ZIP."""
+"""Write the fused city STL, metadata, GeoJSON, README, and download ZIP."""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import trimesh
 from shapely.geometry import mapping
 
 from app.config import Settings
 from app.models.schemas import FileInfo, GenerateRequest, WarningItem
 from app.services.buildings import BuildResult
+from app.services.city import FusedCity, validate_city
+from app.services.errors import CityUnionError
 from app.services.io_utils import utc_now_iso, write_bytes_atomic, write_json_atomic
 from app.services.projection import Projector
 from app.services.stl_export import (
@@ -47,8 +48,7 @@ def _build_metadata(
     non_manifold_edges: int,
     overpass_meta: dict[str, Any],
     area_km2: float,
-    ground_bounds: tuple[float, float, float, float] | None,
-    ground: trimesh.Trimesh | None,
+    city: FusedCity,
     settings: Settings,
     warnings: list[WarningItem],
 ) -> dict[str, Any]:
@@ -91,14 +91,22 @@ def _build_metadata(
             "each_shell_watertight": all(
                 record.mesh.is_watertight for record in build_result.records
             ),
-            "non_manifold_edges": non_manifold_edges,
         },
         "ground": {
-            "included": ground is not None,
-            "mode": request.options.ground_mode if ground is not None else "none",
+            "included": True,
+            "mode": "slab",
             "z": 0.0,
-            "thickness_m": settings.ground_slab_thickness_m,
-            "bounds_local": list(ground_bounds) if ground_bounds else None,
+            "thickness_m": city.base_thickness_m,
+            "bounds_local": list(city.base_bounds),
+        },
+        "city": {
+            "triangle_count": len(city.mesh.faces),
+            "watertight": bool(city.mesh.is_watertight),
+            "winding_consistent": bool(city.mesh.is_winding_consistent),
+            "volume_m3": round(float(city.mesh.volume), 3),
+            "non_manifold_edges": non_manifold_edges,
+            "base_thickness_m": city.base_thickness_m,
+            "union_engine": city.engine,
         },
         "source": {
             "provider": "OpenStreetMap",
@@ -141,44 +149,49 @@ def _geojson(build_result: BuildResult) -> dict[str, Any]:
 
 def _readme_text(metadata: dict[str, Any]) -> str:
     origin = metadata["local_frame"]["origin"]
-    ground = metadata["ground"]
+    city = metadata["city"]
     warnings = metadata.get("warnings") or []
     warning_lines = "\n".join(f"- [{item['code']}] {item['message']}" for item in warnings)
     if not warning_lines:
-        warning_lines = "- 无"
-    return f"""CityGenerator 输出说明
-======================
+        warning_lines = "- None"
+    return f"""CityGenerator output
+===================
 
-单位：米
-局部坐标轴：+X 向东，+Y 向北，+Z 向上
-局部原点：经度 {origin["lon"]}，纬度 {origin["lat"]}
-投影坐标系：{metadata["crs_projected"]}
-OSM 数据时间：{metadata["source"]["osm_base_timestamp"] or "未知"}
+Units: metres
+Local axes: +X east, +Y north, +Z up
+Local origin: longitude {origin["lon"]}, latitude {origin["lat"]}
+Projected CRS: {metadata["crs_projected"]}
+OSM data timestamp: {metadata["source"]["osm_base_timestamp"] or "unknown"}
 
-文件说明
---------
-buildings.stl   所有建筑壳体。每栋建筑是封闭、法向朝外的多面体，适合作为 CFD 障碍物。
-ground.stl      地面 patch，位于 z=0（{"薄板" if ground["mode"] == "slab" else "平面"}）。
-city.stl        buildings + ground 的拼接结果，便于预览和快速导入。
-                注意：它是多个壳体的拼接，不是单一水密实体；CFD 前处理建议使用分文件。
-metadata.json   坐标原点、投影、参数、统计、警告和数据来源。
-buildings.geojson  WGS84 建筑轮廓和高度属性，可用于 GIS 核对。
+Files
+-----
+city.stl        One fused, watertight solid: all buildings plus a
+                {city["base_thickness_m"]} m thick ground base.
+                The boolean union removes internal faces and produces a
+                single closed surface for CFD preprocessing.
+metadata.json  Origin, CRS, parameters, statistics, warnings, and source.
+buildings.geojson  WGS84 building footprints and height attributes.
+README.txt      This file.
 
-CFD 导入建议
-------------
-1. 先分别导入 buildings.stl 和 ground.stl，并把它们指定为不同 patch。
-2. 建筑底部默认向地面以下延伸 {metadata["buildings"]["embed_depth_m"]} m，避免与地面共面。
-3. 在求解器中按需要建立流体域并划分体网格；本工具不生成体网格或算例文件。
-4. 如果求解器要求单一封闭表面，请先在你的前处理软件中做 surface wrap / boolean 处理。
-5. 检查模型尺度和朝向：风场入口方向可参考 +X（东）或 +Y（北）。
+There are no separate buildings.stl or ground.stl files in this output.
 
-数据许可
---------
+CFD notes
+---------
+1. city.stl is one closed surface with no building/ground patch labels.
+2. The ground base occupies z=-{city["base_thickness_m"]} to z=0; buildings
+   extend below z=0 by {metadata["buildings"]["embed_depth_m"]} m before fusing.
+3. Build the fluid domain and volume mesh in your solver; this tool does not
+   generate a volume mesh or solver case.
+4. The model uses metres and +Z up. Check the scale and wind direction before
+   meshing.
+
+Licence
+-------
 © OpenStreetMap contributors, ODbL 1.0
 https://www.openstreetmap.org/copyright
 
-警告
-----
+Warnings
+--------
 {warning_lines}
 """
 
@@ -192,78 +205,27 @@ def write_outputs(
     build_result: BuildResult,
     overpass_meta: dict[str, Any],
     area_km2: float,
-    ground_bounds: tuple[float, float, float, float] | None,
-    ground: trimesh.Trimesh | None,
+    city: FusedCity,
     settings: Settings,
     warnings: list[WarningItem],
 ) -> OutputBundle:
     output_dir = job_dir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    building_mesh = trimesh.util.concatenate(build_result.meshes)
-    meshes_to_join = [building_mesh]
-    if ground is not None:
-        meshes_to_join.append(ground)
-    city_mesh = trimesh.util.concatenate(meshes_to_join)
+    city_bytes = export_stl_bytes(city.mesh)
+    write_bytes_atomic(output_dir / "city.stl", city_bytes)
+    names = ["city.stl"]
 
-    export_mode = request.options.export_mode
-    names: list[str] = []
-    written_non_manifold = 0
-
-    if export_mode in {"both", "separate"}:
-        building_bytes = export_stl_bytes(building_mesh)
-        write_bytes_atomic(output_dir / "buildings.stl", building_bytes)
-        names.append("buildings.stl")
-        try:
-            loaded = load_stl_bytes(building_bytes)
-            written_non_manifold = non_manifold_edge_count(loaded)
-            if len(loaded.faces) != len(building_mesh.faces):
-                warnings.append(
-                    WarningItem(
-                        code="STL_ROUNDTRIP_MISMATCH",
-                        message="buildings.stl 回读后的三角形数与导出前不一致",
-                    )
-                )
-            elif not loaded.is_watertight:
-                # Each building is validated before export. In a multi-shell
-                # obstacle file, touching or overlapping buildings can make the
-                # combined mesh non-watertight even when every shell is closed.
-                # Report the actual non-manifold contacts instead of treating
-                # the whole file as broken.
-                if written_non_manifold:
-                    warnings.append(
-                        WarningItem(
-                            code="NON_MANIFOLD_CONTACTS",
-                            message=(
-                                f"buildings.stl 中有 {written_non_manifold} 条边被 3 个以上三角形共享，"
-                                "通常由相邻或重叠建筑接触引起；单栋壳体已通过校验，"
-                                "CFD 前处理可能需要处理接触面"
-                            ),
-                            count=written_non_manifold,
-                        )
-                    )
-        except Exception as exc:
-            warnings.append(
-                WarningItem(
-                    code="STL_VALIDATION_FAILED",
-                    message=f"buildings.stl 回读校验失败：{exc}",
-                )
-            )
-
-    if ground is not None and export_mode != "combined":
-        write_bytes_atomic(output_dir / "ground.stl", export_stl_bytes(ground))
-        names.append("ground.stl")
-
-    if export_mode in {"both", "combined"}:
-        write_bytes_atomic(output_dir / "city.stl", export_stl_bytes(city_mesh))
-        names.append("city.stl")
-
-    if export_mode == "combined":
-        # No buildings.stl was written; estimate contacts on a merged copy so
-        # metadata still describes the building set.
-        probe = building_mesh.copy()
-        probe.merge_vertices()
-        written_non_manifold = non_manifold_edge_count(probe)
+    loaded = load_stl_bytes(city_bytes)
+    if len(loaded.faces) != len(city.mesh.faces):
+        raise CityUnionError(
+            "city.stl 回读后的三角形数与导出前不一致",
+            detail=f"before={len(city.mesh.faces)}, after={len(loaded.faces)}",
+        )
+    if not loaded.is_watertight:
+        raise CityUnionError("city.stl 回读后不再是水密表面")
+    validate_city(loaded)
+    written_non_manifold = non_manifold_edge_count(loaded)
 
     metadata = _build_metadata(
         job_id=job_id,
@@ -273,8 +235,7 @@ def write_outputs(
         non_manifold_edges=written_non_manifold,
         overpass_meta=overpass_meta,
         area_km2=area_km2,
-        ground_bounds=ground_bounds,
-        ground=ground,
+        city=city,
         settings=settings,
         warnings=warnings,
     )
@@ -301,11 +262,10 @@ def write_outputs(
         )
         for name in names
     ]
-    triangle_count = len(building_mesh.faces) + (len(ground.faces) if ground is not None else 0)
     return OutputBundle(
         files=files,
         zip_path=zip_path,
         zip_size=zip_path.stat().st_size,
-        triangle_count=triangle_count,
+        triangle_count=len(city.mesh.faces),
         metadata=metadata,
     )
