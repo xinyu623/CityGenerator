@@ -10,6 +10,9 @@
 
 **Spec:** `docs/plans/2026-11-02-post-v2.1.1-handoff.md` task 2.
 
+**Status:** implemented on `main` (2026-11-02); the 4×4 and 1 km² numbers are in
+the handoff's task 2 section, the refreshed screenshots in `docs/images/`.
+
 ## Global Constraints
 
 - `patches.json` ranges must still cover every triangle exactly once, in STL order; the three kinds stay `ground`, `wall`, `bottom`.
