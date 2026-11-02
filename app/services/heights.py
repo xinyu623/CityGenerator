@@ -11,10 +11,90 @@ from typing import Any
 
 _NUMBER = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 _FEET_MARKERS = ("ft", "feet", "foot", "'")
-# A known height is a candidate for a target footprint when its building area is
-# between these fractions of the target area.
-AREA_RATIO_MIN = 0.25
-AREA_RATIO_MAX = 4.0
+
+# Sampling weights. A draw prefers observations of the same building type, then
+# of the same type group, and observations whose footprint area is close to the
+# target's on a log scale. The area kernel is asymptotic rather than a hard band:
+# a far-away observation fades out instead of being cut off, so a pool with no
+# close match still samples instead of failing over to the whole pool.
+TYPE_WEIGHT = 2.0
+GROUP_WEIGHT = 1.5
+AREA_BANDWIDTH_LOG = 0.7
+
+# ``building`` tag values, grouped so a sparse tag can borrow from its neighbours
+# instead of falling back to the whole pool.
+_TYPE_GROUPS: dict[str, str] = {
+    "house": "residential",
+    "detached": "residential",
+    "residential": "residential",
+    "apartments": "residential",
+    "dormitory": "residential",
+    "terrace": "residential",
+    "semidetached_house": "residential",
+    "bungalow": "residential",
+    "cabin": "residential",
+    "hut": "residential",
+    "farm": "residential",
+    "barn": "residential",
+    "houseboat": "residential",
+    "commercial": "commercial",
+    "retail": "commercial",
+    "office": "commercial",
+    "hotel": "commercial",
+    "supermarket": "commercial",
+    "mall": "commercial",
+    "kiosk": "commercial",
+    "marketplace": "commercial",
+    "shop": "commercial",
+    "restaurant": "commercial",
+    "bank": "commercial",
+    "cinema": "commercial",
+    "school": "civic",
+    "university": "civic",
+    "college": "civic",
+    "kindergarten": "civic",
+    "hospital": "civic",
+    "clinic": "civic",
+    "museum": "civic",
+    "theatre": "civic",
+    "stadium": "civic",
+    "sports_hall": "civic",
+    "government": "civic",
+    "public": "civic",
+    "civic": "civic",
+    "train_station": "civic",
+    "transportation": "civic",
+    "station": "civic",
+    "subway_entrance": "civic",
+    "church": "civic",
+    "temple": "civic",
+    "mosque": "civic",
+    "community_centre": "civic",
+    "library": "civic",
+    "industrial": "industrial",
+    "factory": "industrial",
+    "warehouse": "industrial",
+    "hangar": "industrial",
+    "garage": "industrial",
+    "garages": "industrial",
+    "parking": "industrial",
+    "shed": "industrial",
+    "service": "industrial",
+    "roof": "industrial",
+    "construction": "industrial",
+    "manufacture": "industrial",
+}
+
+_UNSPECIFIED_TYPES = frozenset({"", "yes", "true", "building"})
+
+
+def building_type_group(building_type: str | None) -> str:
+    """Group an OSM ``building`` value for height-similarity weighting."""
+
+    key = (building_type or "").strip().lower()
+    if key in _UNSPECIFIED_TYPES:
+        return "unspecified"
+    return _TYPE_GROUPS.get(key, "other")
 
 # OSM tags are sparse on low-rise civic and industrial buildings, so a draw from
 # the tagged pool can hand a station or a school the height of a nearby tower.
@@ -174,6 +254,23 @@ def resolve_height(
     return HeightInfo(height_m=height, base_m=base, source=source, clamped=clamped)
 
 
+@dataclass(frozen=True)
+class KnownHeight:
+    """One tagged observation: height, footprint area, and building type."""
+
+    height_m: float
+    area_m2: float = 0.0
+    building_type: str = ""
+
+
+@dataclass(frozen=True)
+class SampledHeight:
+    """A sampled height plus the rule that produced it."""
+
+    height_m: float
+    rule: str
+
+
 class HeightSampler:
     """Draw plausible heights from the local OSM height distribution.
 
@@ -183,29 +280,40 @@ class HeightSampler:
     of the tagged buildings in the same selection, with a small jitter so the
     result does not repeat only a handful of exact values.
 
-    Known heights may be paired with their footprint area; a draw for a target
-    footprint then prefers observations from similar-sized buildings (between
-    ``area_ratio_min`` and ``area_ratio_max`` times its area), so a shed does not
-    draw a tower height. When no observation falls in that band, the draw falls
-    back to the whole pool.
+    Known heights may be paired with their footprint area and building type: a
+    draw then weights every observation by how close its area is (log scale) and
+    whether it shares the target's type or type group. OSM tags over-represent
+    towers, so this keeps a shed from copying a skyscraper while leaving the
+    selection's own shape intact.
+
+    ``conservative`` adds an optional geometric plausibility bound,
+    ``height <= slenderness_k * sqrt(area)``, which trims the slenderness tail
+    for users who want a calmer skyline. It never raises a height.
     """
 
     def __init__(
         self,
-        known: Iterable[float | tuple[float, float]],
+        known: Iterable[KnownHeight | float | tuple[float, float] | tuple[float, float, str]],
         *,
         jitter: float = 0.1,
         seed: int = 0,
-        area_ratio_min: float = AREA_RATIO_MIN,
-        area_ratio_max: float = AREA_RATIO_MAX,
+        conservative: bool = False,
+        slenderness_k: float = 8.0,
     ) -> None:
-        heights: list[float] = []
-        areas: list[float] = []
+        rows: list[tuple[float, float, str]] = []
         for item in known:
-            if isinstance(item, (tuple, list)):
-                height_value, area_value = item[0], item[1]
+            if isinstance(item, KnownHeight):
+                height_value, area_value, building_type = (
+                    item.height_m,
+                    item.area_m2,
+                    item.building_type,
+                )
+            elif isinstance(item, (tuple, list)):
+                height_value = item[0] if len(item) > 0 else 0.0
+                area_value = item[1] if len(item) > 1 else 0.0
+                building_type = item[2] if len(item) > 2 else ""
             else:
-                height_value, area_value = item, 0.0
+                height_value, area_value, building_type = item, 0.0, ""
             try:
                 height = float(height_value)
                 area = float(area_value)
@@ -213,16 +321,23 @@ class HeightSampler:
                 continue
             if not 2.0 <= height <= 300.0:
                 continue
-            heights.append(height)
-            areas.append(area if math.isfinite(area) and area > 0.0 else 0.0)
+            rows.append(
+                (
+                    height,
+                    area if math.isfinite(area) and area > 0.0 else 0.0,
+                    str(building_type or "").strip(),
+                )
+            )
 
-        order = sorted(range(len(heights)), key=heights.__getitem__)
-        self._values = [heights[index] for index in order]
-        self._areas = [areas[index] for index in order]
+        rows.sort(key=lambda row: row[0])
+        self._values = [row[0] for row in rows]
+        self._areas = [row[1] for row in rows]
+        self._types = [row[2] for row in rows]
+        self._groups = [building_type_group(row[2]) for row in rows]
         self._jitter = max(0.0, float(jitter))
         self._rng = random.Random(int(seed))
-        self._area_ratio_min = max(0.0, float(area_ratio_min))
-        self._area_ratio_max = max(self._area_ratio_min, float(area_ratio_max))
+        self._conservative = bool(conservative)
+        self._slenderness_k = max(0.0, float(slenderness_k))
 
     def __len__(self) -> int:
         return len(self._values)
@@ -235,29 +350,76 @@ class HeightSampler:
     def area_weighted(self) -> bool:
         return any(area > 0.0 for area in self._areas)
 
-    def _candidates(self, area_m2: float | None) -> list[float]:
-        if area_m2 is None or not self.area_weighted:
-            return self._values
-        try:
-            target = float(area_m2)
-        except (TypeError, ValueError):
-            return self._values
-        if not math.isfinite(target) or target <= 0.0:
-            return self._values
-        low = target * self._area_ratio_min
-        high = target * self._area_ratio_max
-        pool = [
-            height
-            for height, area in zip(self._values, self._areas, strict=True)
-            if area > 0.0 and low <= area <= high
-        ]
-        return pool or self._values
+    def _candidates(
+        self,
+        area_m2: float | None,
+        building_type: str | None,
+    ) -> tuple[list[int], list[float] | None, str]:
+        """Candidate indexes, their weights (``None`` means uniform), and the rule."""
 
-    def draw(self, area_m2: float | None = None) -> float:
-        """One height in metres, jittered around a local observation."""
+        everything = list(range(len(self._values)))
+        target: float | None = None
+        if area_m2 is not None and self.area_weighted:
+            try:
+                target = float(area_m2)
+            except (TypeError, ValueError):
+                target = None
+            if target is not None and (not math.isfinite(target) or target <= 0.0):
+                target = None
+        if target is None:
+            return everything, None, "pool"
+
+        key = (building_type or "").strip().lower()
+        group = building_type_group(building_type)
+        log_target = math.log(target)
+        indexes: list[int] = []
+        weights: list[float] = []
+        for index, (area, candidate_type, candidate_group) in enumerate(
+            zip(self._areas, self._types, self._groups, strict=True)
+        ):
+            if area <= 0.0:
+                continue
+            delta = (math.log(area) - log_target) / AREA_BANDWIDTH_LOG
+            weight = math.exp(-0.5 * delta * delta)
+            if key and key not in _UNSPECIFIED_TYPES and candidate_type.lower() == key:
+                weight *= TYPE_WEIGHT
+            elif candidate_group == group:
+                weight *= GROUP_WEIGHT
+            if weight > 0.0:
+                indexes.append(index)
+                weights.append(weight)
+        if not indexes or sum(weights) <= 0.0:
+            return everything, None, "pool"
+        return indexes, weights, "similarity"
+
+    def draw(
+        self,
+        area_m2: float | None = None,
+        building_type: str | None = None,
+    ) -> SampledHeight:
+        """One height in metres plus the rule that produced it."""
 
         if not self._values:
             raise ValueError("height sampler has no known heights")
-        base = self._rng.choice(self._candidates(area_m2))
+        indexes, weights, rule = self._candidates(area_m2, building_type)
+        if weights is None:
+            base = self._values[self._rng.choice(indexes)]
+        else:
+            base = self._values[self._rng.choices(indexes, weights=weights, k=1)[0]]
         value = base * (1.0 + self._rng.uniform(-self._jitter, self._jitter))
-        return min(300.0, max(2.0, value))
+
+        cap = sampled_height_cap(building_type)
+        if cap is not None and value > cap:
+            value = cap
+            rule = "type_cap"
+        if self._conservative and area_m2 is not None:
+            try:
+                target = float(area_m2)
+            except (TypeError, ValueError):
+                target = 0.0
+            if target > 0.0:
+                bound = self._slenderness_k * math.sqrt(target)
+                if value > bound:
+                    value = bound
+                    rule = "conservative_cap"
+        return SampledHeight(height_m=min(300.0, max(2.0, value)), rule=rule)

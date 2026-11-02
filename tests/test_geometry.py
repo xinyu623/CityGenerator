@@ -328,7 +328,7 @@ def test_clamped_heights_are_not_sampling_observations():
 
     pairs = _known_height_pairs(features, 25.0, 3.0)
 
-    assert [height for height, _ in pairs] == [pytest.approx(12.0)]
+    assert [pair.height_m for pair in pairs] == [pytest.approx(12.0)]
 
 
 def test_sampled_heights_respect_low_rise_type_caps():
@@ -348,7 +348,57 @@ def test_sampled_heights_respect_low_rise_type_caps():
     station = next(item for item in prepared.items if item.osm_id == 2)
     assert station.height_source == "sampled"
     assert station.height_m <= 60.0
+    assert station.height_rule == "type_cap"
     assert prepared.height_sampling["type_capped"] == 1
+    assert prepared.height_sampling["rules"]["type_cap"] == 1
+
+
+def test_sampled_buildings_record_the_rule_that_produced_their_height():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "house", "height": "6"}, 0.000),
+        _feature(2, {"building": "house"}, 0.002),
+    ]
+
+    prepared = prepare_buildings(features, projector, min_height_samples=1, height_seed=3)
+
+    house = next(item for item in prepared.items if item.osm_id == 2)
+    assert house.height_source == "sampled"
+    assert house.height_rule == "similarity"
+    sampling = prepared.height_sampling
+    assert sampling["rules"]["similarity"] == 1
+    assert sampling["weighting"] == "type_and_area_similarity"
+    assert sampling["type_factors"] == {"same_type": 2.0, "type_group": 1.5}
+    assert sampling["sampled_above_100m"] == 0
+    assert sampling["pool_above_100m"] == 0
+    assert sampling["above_100m_by_group"] == {"residential": 0}
+
+
+def test_conservative_sampling_is_opt_in():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "250"}, 0.000),
+        _feature(2, {"building": "yes"}, 0.002, size=0.0001),
+    ]
+
+    loose = prepare_buildings(features, projector, min_height_samples=1, height_seed=5)
+    tight = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=1,
+        height_seed=5,
+        height_conservative=True,
+        height_slenderness_k=8.0,
+    )
+
+    tight_building = next(item for item in tight.items if item.osm_id == 2)
+    assert tight_building.height_rule == "conservative_cap"
+    assert tight_building.height_m < 250.0
+    assert tight.height_sampling["conservative"] is True
+    assert tight.height_sampling["slenderness_k"] == pytest.approx(8.0)
+    assert loose.height_sampling["conservative"] is False
+    assert loose.height_sampling["pool_above_250m"] == 1
+    assert loose.height_sampling["sampled_above_250m"] == 1
 
 
 def test_tagged_low_rise_height_is_not_capped():

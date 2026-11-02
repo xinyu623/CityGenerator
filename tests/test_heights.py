@@ -7,6 +7,8 @@ import pytest
 from app.services.heights import (
     HeightInfo,
     HeightSampler,
+    KnownHeight,
+    building_type_group,
     parse_length_m,
     parse_levels,
     resolve_height,
@@ -104,22 +106,22 @@ def test_resolve_height_never_below_base():
 def test_height_sampler_draws_near_the_known_values():
     sampler = HeightSampler([12.0, 60.0, 9.0], jitter=0.1, seed=3)
 
-    values = [sampler.draw() for _ in range(200)]
+    values = [sampler.draw().height_m for _ in range(200)]
     assert all(2.0 <= value <= 300.0 for value in values)
     assert min(values) >= 9.0 * 0.9 - 1e-9
     assert max(values) <= 60.0 * 1.1 + 1e-9
 
 
 def test_height_sampler_is_deterministic_for_a_seed():
-    first = [HeightSampler([15.0, 30.0], seed=11).draw() for _ in range(5)]
-    second = [HeightSampler([15.0, 30.0], seed=11).draw() for _ in range(5)]
+    first = [HeightSampler([15.0, 30.0], seed=11).draw().height_m for _ in range(5)]
+    second = [HeightSampler([15.0, 30.0], seed=11).draw().height_m for _ in range(5)]
     assert first == second
 
 
 def test_height_sampler_ignores_out_of_range_values():
     sampler = HeightSampler([0.5, 1.0, 40.0, 500.0], seed=0)
     assert len(sampler) == 1
-    assert sampler.draw() == pytest.approx(40.0, rel=0.1)
+    assert sampler.draw().height_m == pytest.approx(40.0, rel=0.1)
 
 
 def test_height_sampler_without_values_is_not_usable():
@@ -136,20 +138,153 @@ def test_height_sampler_prefers_heights_from_similar_footprints():
         seed=5,
     )
 
-    assert {sampler.draw(30.0) for _ in range(50)} == {4.0}
-    assert {sampler.draw(2500.0) for _ in range(50)} == {100.0}
+    small = [sampler.draw(30.0).height_m for _ in range(50)]
+    large = [sampler.draw(2500.0).height_m for _ in range(50)]
+
+    # The area kernel is asymptotic, not a hard band: the near observation
+    # dominates, the far ones fade out instead of being cut off.
+    assert small.count(4.0) >= 40
+    assert 100.0 not in small
+    assert large.count(100.0) >= 40
+    assert 4.0 not in large
 
 
-def test_height_sampler_falls_back_to_all_heights_without_a_size_match():
+def test_height_sampler_fades_far_observations_instead_of_cutting_them_off():
     sampler = HeightSampler([(4.0, 20.0), (100.0, 5000.0)], jitter=0.0, seed=1)
 
-    values = {sampler.draw(1_000_000.0) for _ in range(200)}
+    values = {sampler.draw(1_000_000.0).height_m for _ in range(200)}
+
+    # Neither observation is close to a 1e6 m2 target, so the kernel picks the
+    # nearer one instead of falling back to a uniform pool.
+    assert values == {100.0}
+
+
+def test_height_sampler_samples_uniformly_when_no_observation_has_an_area():
+    sampler = HeightSampler([4.0, 100.0], jitter=0.0, seed=1)
+
+    values = {sampler.draw(1000.0).height_m for _ in range(200)}
 
     assert values == {4.0, 100.0}
+
+
+def test_height_sampler_skips_area_less_observations_when_weighting():
+    sampler = HeightSampler([(4.0, 700.0), 100.0], jitter=0.0, seed=1)
+
+    values = {sampler.draw(700.0).height_m for _ in range(200)}
+
+    assert values == {4.0}
 
 
 def test_height_sampler_accepts_plain_heights_and_ignores_the_area():
     sampler = HeightSampler([12.0, 60.0], jitter=0.0, seed=0)
 
-    assert sampler.draw(2500.0) in {12.0, 60.0}
+    assert sampler.draw(2500.0).height_m in {12.0, 60.0}
     assert sampler.area_weighted is False
+
+
+@pytest.mark.parametrize(
+    ("building_type", "group"),
+    [
+        ("yes", "unspecified"),
+        (None, "unspecified"),
+        ("", "unspecified"),
+        ("apartments", "residential"),
+        ("house", "residential"),
+        ("retail", "commercial"),
+        ("school", "civic"),
+        ("train_station", "civic"),
+        ("warehouse", "industrial"),
+        ("tower", "other"),
+    ],
+)
+def test_building_type_group_maps_osm_values(building_type, group):
+    assert building_type_group(building_type) == group
+
+
+def test_height_sampler_prefers_the_same_type_and_area():
+    # Twenty walk-ups of 700 m2 and one 250 m tower: the kernel plus the type
+    # weight must keep the tower out of a 700 m2 draw.
+    known = [KnownHeight(9.0, 700.0, "yes") for _ in range(20)]
+    known.append(KnownHeight(250.0, 1700.0, "yes"))
+    sampler = HeightSampler(known, jitter=0.0, seed=0)
+
+    draws = [sampler.draw(700.0, "yes") for _ in range(200)]
+
+    assert sum(1 for draw in draws if draw.height_m == 9.0) >= 180
+    assert {draw.rule for draw in draws} == {"similarity"}
+
+
+def test_height_sampler_weights_the_same_type_above_another_type():
+    # Same footprint area, so only the type factor can separate the two.
+    known = [KnownHeight(20.0, 700.0, "apartments"), KnownHeight(60.0, 700.0, "tower")]
+    sampler = HeightSampler(known, jitter=0.0, seed=1)
+
+    heights = [sampler.draw(700.0, "apartments").height_m for _ in range(200)]
+
+    assert heights.count(20.0) > heights.count(60.0)
+
+
+def test_height_sampler_records_the_rule():
+    sampler = HeightSampler([KnownHeight(200.0, 700.0, "yes")], jitter=0.0, seed=0)
+
+    assert sampler.draw(700.0, "yes").rule == "similarity"
+    assert sampler.draw(None, "yes").rule == "pool"
+    capped = sampler.draw(700.0, "train_station")
+    assert capped.rule == "type_cap"
+    assert capped.height_m == pytest.approx(60.0)
+
+
+def test_height_sampler_applies_the_conservative_slenderness_bound():
+    sampler = HeightSampler(
+        [KnownHeight(200.0, 400.0, "yes")],
+        jitter=0.0,
+        seed=0,
+        conservative=True,
+        slenderness_k=8.0,
+    )
+
+    draw = sampler.draw(400.0, "yes")
+
+    assert draw.height_m == pytest.approx(160.0)
+    assert draw.rule == "conservative_cap"
+
+
+def test_conservative_bound_never_raises_a_height():
+    sampler = HeightSampler(
+        [KnownHeight(50.0, 400.0, "yes")],
+        jitter=0.0,
+        seed=0,
+        conservative=True,
+        slenderness_k=8.0,
+    )
+
+    assert sampler.draw(400.0, "yes").height_m == pytest.approx(50.0)
+
+
+def test_conservative_bound_is_inactive_without_an_area():
+    sampler = HeightSampler(
+        [KnownHeight(200.0, 400.0, "yes")],
+        jitter=0.0,
+        seed=0,
+        conservative=True,
+    )
+
+    assert sampler.draw(None, "yes").height_m == pytest.approx(200.0)
+    assert sampler.draw(0.0, "yes").height_m == pytest.approx(200.0)
+
+
+def test_type_ceiling_survives_the_conservative_bound():
+    # A 100 m observation for a shed: the 10 m type ceiling wins over the
+    # (looser) 80 m slenderness bound for a 100 m2 footprint.
+    sampler = HeightSampler(
+        [KnownHeight(100.0, 100.0, "shed")],
+        jitter=0.0,
+        seed=0,
+        conservative=True,
+        slenderness_k=8.0,
+    )
+
+    draw = sampler.draw(100.0, "shed")
+
+    assert draw.height_m == pytest.approx(10.0)
+    assert draw.rule == "type_cap"

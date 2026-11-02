@@ -23,12 +23,14 @@ from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
 
 from app.services.heights import (
-    AREA_RATIO_MAX,
-    AREA_RATIO_MIN,
+    AREA_BANDWIDTH_LOG,
+    GROUP_WEIGHT,
+    TYPE_WEIGHT,
     HeightInfo,
     HeightSampler,
+    KnownHeight,
+    building_type_group,
     resolve_height,
-    sampled_height_cap,
 )
 from app.services.issues import Issue
 from app.services.projection import Projector
@@ -69,6 +71,7 @@ class BuildingRecord:
     mesh: trimesh.Trimesh
     ground_m: float = 0.0
     footprint_relief_m: float = 0.0
+    height_rule: str = ""
 
 
 @dataclass
@@ -82,6 +85,7 @@ class PreparedBuilding:
     base_m: float
     height_source: str
     area_m2: float
+    height_rule: str = ""
 
 
 @dataclass
@@ -337,10 +341,10 @@ def _known_height_pairs(
     features: Sequence[BuildingFeature],
     default_height_m: float,
     level_height_m: float,
-) -> list[tuple[float, float]]:
-    """``(height, footprint area)`` for buildings that carry a height or level tag."""
+) -> list[KnownHeight]:
+    """Height, footprint area, and building type for every tagged building."""
 
-    pairs: list[tuple[float, float]] = []
+    pairs: list[KnownHeight] = []
     for feature in features:
         info = resolve_height(
             feature.tags,
@@ -351,8 +355,59 @@ def _known_height_pairs(
         # becomes 300): it is not an observation worth copying onto other
         # buildings.
         if info.source != "default" and not info.clamped:
-            pairs.append((info.height_m, _footprint_area_m2(feature.geometry)))
+            pairs.append(
+                KnownHeight(
+                    height_m=info.height_m,
+                    area_m2=_footprint_area_m2(feature.geometry),
+                    building_type=feature.tags.get("building", ""),
+                )
+            )
     return pairs
+
+
+def _sampling_metadata(
+    known: Sequence[KnownHeight],
+    *,
+    jitter: float,
+    seed: int,
+    sampler: HeightSampler,
+    conservative: bool,
+    slenderness_k: float,
+) -> dict[str, Any]:
+    """The ``buildings.height_sampling`` block, with the pool's own tail counts."""
+
+    return {
+        "enabled": True,
+        "known": len(known),
+        "jitter": float(jitter),
+        "seed": int(seed),
+        "weighting": "type_and_area_similarity",
+        "type_factors": {"same_type": TYPE_WEIGHT, "type_group": GROUP_WEIGHT},
+        "area_bandwidth_log": AREA_BANDWIDTH_LOG,
+        "area_weighted": sampler.area_weighted,
+        "conservative": bool(conservative),
+        "slenderness_k": float(slenderness_k),
+        "pool_above_100m": sum(1 for item in known if item.height_m >= 100.0),
+        "pool_above_250m": sum(1 for item in known if item.height_m >= 250.0),
+    }
+
+
+def _sampled_tail(
+    items: Sequence[PreparedBuilding],
+) -> tuple[int, int, dict[str, int]]:
+    """Sampled buildings above 100 m and 250 m, plus the 100 m counts by type group."""
+
+    sampled = [item for item in items if item.height_source == "sampled"]
+    above_100 = sum(1 for item in sampled if item.height_m >= 100.0)
+    above_250 = sum(1 for item in sampled if item.height_m >= 250.0)
+    counts: Counter[str] = Counter()
+    present: set[str] = set()
+    for item in sampled:
+        group = building_type_group(item.tags.get("building"))
+        present.add(group)
+        if item.height_m >= 100.0:
+            counts[group] += 1
+    return above_100, above_250, {group: counts.get(group, 0) for group in sorted(present)}
 
 
 def prepare_buildings(
@@ -367,6 +422,8 @@ def prepare_buildings(
     height_jitter: float = 0.1,
     height_seed: int = 0,
     min_height_samples: int = 5,
+    height_conservative: bool = False,
+    height_slenderness_k: float = 8.0,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> PreparedBuildings:
@@ -386,15 +443,21 @@ def prepare_buildings(
     if sample_missing_heights:
         known = _known_height_pairs(features, default_height_m, level_height_m)
         if len(known) >= max(1, int(min_height_samples)):
-            sampler = HeightSampler(known, jitter=height_jitter, seed=height_seed)
-            result.height_sampling = {
-                "enabled": True,
-                "known": len(known),
-                "jitter": float(height_jitter),
-                "seed": int(height_seed),
-                "area_weighted": sampler.area_weighted,
-                "area_ratio": [AREA_RATIO_MIN, AREA_RATIO_MAX],
-            }
+            sampler = HeightSampler(
+                known,
+                jitter=height_jitter,
+                seed=height_seed,
+                conservative=height_conservative,
+                slenderness_k=height_slenderness_k,
+            )
+            result.height_sampling = _sampling_metadata(
+                known,
+                jitter=height_jitter,
+                seed=height_seed,
+                sampler=sampler,
+                conservative=height_conservative,
+                slenderness_k=height_slenderness_k,
+            )
         else:
             result.height_sampling = {
                 "enabled": False,
@@ -402,7 +465,7 @@ def prepare_buildings(
                 "reason": "too_few_known_heights",
             }
 
-    type_capped = 0
+    rules: Counter[str] = Counter()
     for index, feature in enumerate(features):
         if cancel_event is not None and cancel_event.is_set():
             raise BuildCancelled("job cancelled")
@@ -429,15 +492,14 @@ def prepare_buildings(
             default_height_m=default_height_m,
             level_height_m=level_height_m,
         )
+        height_rule = ""
         if sampler is not None and height.source == "default":
             footprint_area_m2 = math.fsum(polygon.area for polygon in polygons)
-            sampled = sampler.draw(footprint_area_m2)
-            cap = sampled_height_cap(feature.tags.get("building"))
-            if cap is not None and sampled > cap:
-                sampled = cap
-                type_capped += 1
+            sampled = sampler.draw(footprint_area_m2, feature.tags.get("building"))
+            rules[sampled.rule] += 1
+            height_rule = sampled.rule
             height = HeightInfo(
-                height_m=sampled,
+                height_m=sampled.height_m,
                 base_m=height.base_m,
                 source="sampled",
                 clamped=height.clamped,
@@ -455,6 +517,7 @@ def prepare_buildings(
                     base_m=height.base_m,
                     height_source=height.source,
                     area_m2=float(polygon.area),
+                    height_rule=height_rule,
                 )
             )
             result.height_sources[height.source] = result.height_sources.get(height.source, 0) + 1
@@ -484,8 +547,13 @@ def prepare_buildings(
             message = f"{missing} 栋建筑缺少高度标签，已使用默认高度 {default_height_m:g} m"
         result.warnings.append(Issue(code="MISSING_HEIGHT", message=message, count=missing))
     result.height_sampling["sampled"] = result.height_sources.get("sampled", 0)
+    result.height_sampling["rules"] = dict(sorted(rules.items()))
     if sampler is not None:
-        result.height_sampling["type_capped"] = type_capped
+        above_100, above_250, by_group = _sampled_tail(result.items)
+        result.height_sampling["type_capped"] = rules.get("type_cap", 0)
+        result.height_sampling["sampled_above_100m"] = above_100
+        result.height_sampling["sampled_above_250m"] = above_250
+        result.height_sampling["above_100m_by_group"] = by_group
     if counts["HEIGHT_CLAMPED"]:
         result.warnings.append(
             Issue(
@@ -603,6 +671,7 @@ def extrude_prepared(
                 mesh=mesh,
                 ground_m=ground,
                 footprint_relief_m=relief,
+                height_rule=item.height_rule,
             )
         )
 
