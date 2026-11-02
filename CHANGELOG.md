@@ -2,8 +2,19 @@
 
 All notable changes to CityGenerator are recorded here.
 
-## [Unreleased]
+## [2.2.0] - 2026-11-02
 
+- Sampled heights now clear a building's own tagged base. When the draw lands
+  below `base + level_height_m`, the height is raised to that floor and the
+  building records the new `base_floor` rule (one storey above the base rather
+  than a paper-thin slab). On the 4×4 km sample this keeps two relation parts
+  that used to be dropped as `TRIANGULATION_FAILED` — a 3.1/3.2 m draw on an
+  18 m `building:min_level=6` base — so the reference is now 1 698 buildings,
+  87 634 triangles, volume 1.33734e9 m³, patches 54 539 ground / 32 547 wall /
+  548 bottom in 774 ranges, and rules `base_floor 2 / similarity 1161 /
+  type_cap 15` (the sampled tail stays 69 / 17 and `height_report --check`
+  passes). A forced `base_floor` height is exempt from the report's type-ceiling
+  and slenderness checks, since the building's own base set it.
 - Build stage ~1.8× faster on the cached 4×4 km sample. Each building shell is
   now extruded with shared ring vertices (no duplicate wall vertices, no vertex
   merge) and measured in one sorted-edge pass — closure, winding, volume,
@@ -91,7 +102,8 @@ All notable changes to CityGenerator are recorded here.
   buildings above 250 m fall from 21 to 17 and above 100 m from 73 to 69 against
   a pool share of 2.6 % / 8.9 %; samples with height/√area > 10 fall from 12 to
   1 and the worst ratio from 17.0 to 10.9. Every sampled building records the
-  rule that produced its height (`similarity`, `type_cap`, `conservative_cap`)
+  rule that produced its height (`similarity`, `type_cap`, `conservative_cap`,
+  and the 2.2.0 `base_floor`)
   as `height_rule` in `buildings.geojson`, and
   `metadata.json → buildings.height_sampling` gains the pool's and the sample's
   ≥100 m/≥250 m counts by type group (per OSM building; `sampled` still counts
