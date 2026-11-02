@@ -18,6 +18,86 @@ def counts_of(kinds: np.ndarray) -> dict[str, int]:
     }
 
 
+def _mesh(*triangles: list[tuple[float, float, float]]) -> trimesh.Trimesh:
+    vertices = [vertex for triangle in triangles for vertex in triangle]
+    faces = [[index, index + 1, index + 2] for index in range(0, len(vertices), 3)]
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+
+def test_ground_face_with_a_vertex_off_the_surface_is_a_wall():
+    # The centroid is 0.03 m above z=0 (inside the 0.05 m tolerance) but one
+    # vertex is 0.09 m up: the whole triangle is not on the ground.
+    mesh = _mesh(
+        [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 2.0, 0.09)],
+        [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 4.0, 0.0)],
+        [(100.0, 100.0, -1.0), (104.0, 100.0, -1.0), (100.0, 104.0, -1.0)],
+    )
+
+    kinds = face_kinds(mesh, ground_tolerance_m=0.05)
+
+    assert list(kinds) == [WALL, GROUND, BOTTOM]
+
+
+def test_near_vertical_sliver_on_the_ground_plane_is_a_wall():
+    # A long thin triangle with nz 0.78 whose vertices all sit within 4 cm of
+    # z=0: the centroid test alone called it ground, its normal does not.
+    mesh = _mesh(
+        [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 0.05, 0.04)],
+        [(100.0, 100.0, -1.0), (104.0, 100.0, -1.0), (100.0, 104.0, -1.0)],
+    )
+
+    assert face_kinds(mesh, ground_tolerance_m=0.05)[0] == WALL
+
+
+def test_low_roof_on_a_slope_is_not_ground():
+    grid = TerrainGrid(
+        heights=np.array([[0.0, 10.0], [0.0, 10.0]]),
+        x0=0.0,
+        y0=0.0,
+        dx=20.0,
+        dy=20.0,
+        elevation_min_m=0.0,
+        elevation_max_m=10.0,
+    )
+    # A flat roof whose centroid touches the slope (0.02 m above it) while its
+    # uphill and downhill vertices are about 1 m off the surface.
+    mesh = _mesh(
+        [(8.0, 8.0, 5.02), (12.0, 8.0, 5.02), (10.0, 12.0, 5.02)],
+        [(100.0, 100.0, -1.0), (104.0, 100.0, -1.0), (100.0, 104.0, -1.0)],
+    )
+
+    kinds = face_kinds(mesh, terrain=grid, ground_tolerance_m=0.05)
+
+    assert kinds[0] == WALL
+
+
+def test_terrain_top_stays_ground_on_a_steep_slope():
+    grid = TerrainGrid(
+        heights=np.array([[0.0, 20.0], [0.0, 20.0]]),
+        x0=0.0,
+        y0=0.0,
+        dx=20.0,
+        dy=20.0,
+        elevation_min_m=0.0,
+        elevation_max_m=20.0,
+    )
+    solid = build_terrain_solid(grid, thickness_m=1.0)  # 45 degree slope
+
+    kinds = face_kinds(solid, terrain=grid)
+
+    assert counts_of(kinds)["ground"] == 2
+
+
+def test_patch_table_records_the_normal_dot_threshold():
+    mesh = box(extents=(10.0, 10.0, 1.0))
+    mesh.apply_translation((0.0, 0.0, -0.5))
+    kinds = face_kinds(mesh, ground_tolerance_m=0.05)
+
+    table = patch_table(kinds, ground_tolerance_m=0.05, normal_dot_min=0.9)
+
+    assert table["ground_normal_dot_min"] == 0.9
+
+
 def test_flat_slab_is_split_into_ground_wall_bottom():
     slab = box(extents=(10.0, 10.0, 1.0))
     slab.apply_translation((0.0, 0.0, -0.5))

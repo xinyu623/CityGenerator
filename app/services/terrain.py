@@ -114,8 +114,10 @@ class TerrainGrid:
         return 2 * (self.nx - 1) * (self.ny - 1) + 2 * border + (border - 2)
 
     # -- sampling ------------------------------------------------------
-    def surface_z(self, x: np.ndarray | float, y: np.ndarray | float) -> np.ndarray:
-        """Exact height on the triangulated surface (same split as the solid)."""
+    def _cell_terms(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Cell indexes and fractional position, matching the solid's split."""
 
         u, v = np.broadcast_arrays(
             (np.asarray(x, dtype=float) - self.x0) / self.dx,
@@ -125,6 +127,12 @@ class TerrainGrid:
         j = np.clip(np.floor(v).astype(np.int64), 0, self.ny - 2)
         fu = np.clip(u - i, 0.0, 1.0)
         fv = np.clip(v - j, 0.0, 1.0)
+        return i, j, fu, fv
+
+    def surface_z(self, x: np.ndarray | float, y: np.ndarray | float) -> np.ndarray:
+        """Exact height on the triangulated surface (same split as the solid)."""
+
+        i, j, fu, fv = self._cell_terms(x, y)
 
         h00 = self.heights[j, i]
         h10 = self.heights[j, i + 1]
@@ -134,6 +142,23 @@ class TerrainGrid:
         lower = h00 + (h10 - h00) * fu + (h11 - h10) * fv
         upper = h00 + (h11 - h01) * fu + (h01 - h00) * fv
         return np.where(fu >= fv, lower, upper)
+
+    def surface_normal(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> np.ndarray:
+        """Unit normal of the triangulated surface at ``(x, y)``, ``+z`` up."""
+
+        i, j, fu, fv = self._cell_terms(x, y)
+
+        h00 = self.heights[j, i]
+        h10 = self.heights[j, i + 1]
+        h01 = self.heights[j + 1, i]
+        h11 = self.heights[j + 1, i + 1]
+        lower = fu >= fv
+        gx = np.where(lower, (h10 - h00) / self.dx, (h11 - h01) / self.dx)
+        gy = np.where(lower, (h11 - h10) / self.dy, (h01 - h00) / self.dy)
+        norm = np.sqrt(gx * gx + gy * gy + 1.0)
+        return np.stack([-gx / norm, -gy / norm, 1.0 / norm], axis=-1)
 
     def _cell_range(
         self, polygon: Polygon

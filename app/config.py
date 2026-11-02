@@ -66,9 +66,12 @@ class Settings(BaseSettings):
     simplify_m: float = 0.05
     min_building_area_m2: float = 4.0
     ground_slab_thickness_m: float = 1.0
-    # patches.json marks an upward triangle as ground when its centroid is this
-    # close to the terrain surface; everything upward and higher is a roof.
+    # patches.json marks an upward triangle as ground when its centroid and all
+    # three vertices are this close to the terrain surface and its normal agrees
+    # with the terrain normal (dot >= the second value); everything upward and
+    # higher is a roof.
     patch_ground_tolerance_m: float = 0.05
+    patch_ground_normal_dot_min: float = 0.9
     # Touching footprints are grown by half of this before extrusion so their
     # volumes genuinely overlap. That keeps the union manifold without the old
     # 0.4 m weld boxes; 0 disables it.

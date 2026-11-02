@@ -25,6 +25,11 @@ SCHEMA_VERSION = "1.0"
 # upward slope (0.6 deg) and the bottom is recognised geometrically (every
 # vertex on the base underside), not from the sign of nz alone.
 _GROUND_MIN_NZ = 0.01
+# A face on the ground plane can still be a wall: a terrain skirt sliver or a
+# near-vertical float32 triangle whose vertices all sit within the distance
+# tolerance. Requiring the face normal to agree with the terrain normal rejects
+# those, and it also rejects a roof that only touches the slope at its centroid.
+GROUND_NORMAL_DOT_MIN = 0.9
 
 
 def face_kinds(
@@ -32,15 +37,18 @@ def face_kinds(
     *,
     terrain: TerrainGrid | None = None,
     ground_tolerance_m: float = 0.05,
+    normal_dot_min: float = GROUND_NORMAL_DOT_MIN,
 ) -> np.ndarray:
     """Classify every face, in mesh face order.
 
     ``bottom`` is the base underside: every vertex sits on the mesh's lowest
-    plane. Among the remaining upward faces, ``ground`` means the face centroid
-    is within ``ground_tolerance_m`` of the terrain surface (the flat ground at
-    ``z = 0`` when terrain is disabled); every other upward face is a roof and
-    stays ``wall``. Vertical faces are walls, including the terrain skirt and
-    the float32-noise tilt on short wall triangles.
+    plane. Among the remaining upward faces, ``ground`` means the whole triangle
+    lies on the terrain surface: the centroid and all three vertices are within
+    ``ground_tolerance_m`` of the surface, and the face normal agrees with the
+    terrain normal (``dot >= normal_dot_min``). A flat-ground run compares
+    against the ``z = 0`` plane and its up normal instead. Every other upward
+    face is a roof and stays ``wall``; vertical faces are walls, including the
+    terrain skirt and the float32-noise tilt on short wall triangles.
     """
 
     normals = np.asarray(mesh.face_normals, dtype=float)
@@ -55,19 +63,39 @@ def face_kinds(
 
         upward = np.nonzero((nz > _GROUND_MIN_NZ) & ~on_bottom)[0]
         if upward.size:
+            upward_triangles = triangles[upward]
             centers = np.asarray(mesh.triangles_center, dtype=float)[upward]
             if terrain is not None:
                 surface = np.asarray(
                     terrain.surface_z(centers[:, 0], centers[:, 1]), dtype=float
                 )
+                vertex_surface = np.asarray(
+                    terrain.surface_z(upward_triangles[:, :, 0], upward_triangles[:, :, 1]),
+                    dtype=float,
+                )
+                surface_normal = np.asarray(
+                    terrain.surface_normal(centers[:, 0], centers[:, 1]), dtype=float
+                )
             else:
                 surface = np.zeros(len(centers), dtype=float)
-            on_surface = np.abs(centers[:, 2] - surface) <= ground_tolerance_m
-            kinds[upward[on_surface]] = GROUND
+                vertex_surface = np.zeros_like(upward_triangles[:, :, 2])
+                surface_normal = np.zeros((len(centers), 3), dtype=float)
+                surface_normal[:, 2] = 1.0
+            centroid_ok = np.abs(centers[:, 2] - surface) <= ground_tolerance_m
+            vertex_ok = (
+                np.abs(upward_triangles[:, :, 2] - vertex_surface) <= ground_tolerance_m
+            ).all(axis=1)
+            normal_ok = (normals[upward] * surface_normal).sum(axis=1) >= normal_dot_min
+            kinds[upward[centroid_ok & vertex_ok & normal_ok]] = GROUND
     return kinds
 
 
-def patch_table(kinds: np.ndarray, *, ground_tolerance_m: float) -> dict[str, Any]:
+def patch_table(
+    kinds: np.ndarray,
+    *,
+    ground_tolerance_m: float,
+    normal_dot_min: float = GROUND_NORMAL_DOT_MIN,
+) -> dict[str, Any]:
     """Build the ``patches.json`` payload: counts plus contiguous ranges."""
 
     ranges: list[dict[str, Any]] = []
@@ -92,6 +120,7 @@ def patch_table(kinds: np.ndarray, *, ground_tolerance_m: float) -> dict[str, An
         "unit": "m",
         "triangle_count": int(len(kinds)),
         "ground_tolerance_m": ground_tolerance_m,
+        "ground_normal_dot_min": normal_dot_min,
         "counts": counts,
         "ranges": ranges,
     }

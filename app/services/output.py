@@ -115,6 +115,7 @@ def _build_metadata(
             "unit": "m",
             "triangle_count": int(patches["triangle_count"]) if patches else 0,
             "ground_tolerance_m": float(patches["ground_tolerance_m"]) if patches else 0.0,
+            "ground_normal_dot_min": float(patches["ground_normal_dot_min"]) if patches else 0.0,
             "counts": dict(patches["counts"]) if patches else {},
             "range_count": len(patches["ranges"]) if patches else 0,
         },
@@ -302,10 +303,11 @@ def _patch_readme(metadata: dict[str, Any]) -> str:
         f"patches.json maps all {total} triangles of city.stl to ground, wall, or\n"
         f"bottom ({parts}). The ranges are contiguous and in STL order, so a solver\n"
         "can assign boundary patches by walking the file once.\n"
-        f"An upward triangle within {patches.get('ground_tolerance_m')} m of the terrain\n"
-        "surface is ground; other upward triangles are roofs and stay walls. The\n"
-        "terrain skirt is a wall and the base underside is bottom. Steep terrain can\n"
-        "misclassify a few near-surface roof triangles.\n"
+        f"A triangle is ground when it faces up, its centroid and all three vertices\n"
+        f"are within {patches.get('ground_tolerance_m')} m of the terrain surface, and its\n"
+        f"normal agrees with the terrain normal (dot >= {patches.get('ground_normal_dot_min')}).\n"
+        "Other upward triangles are roofs and stay walls. The terrain skirt is a\n"
+        "wall and the base underside is bottom.\n"
         "\n"
     )
 
@@ -365,10 +367,12 @@ def write_outputs(
         loaded,
         terrain=terrain,
         ground_tolerance_m=settings.patch_ground_tolerance_m,
+        normal_dot_min=settings.patch_ground_normal_dot_min,
     )
     patches = patch_table(
         kinds,
         ground_tolerance_m=settings.patch_ground_tolerance_m,
+        normal_dot_min=settings.patch_ground_normal_dot_min,
     )
     write_json_atomic(output_dir / "patches.json", patches)
     names = ["city.stl", "patches.json"]

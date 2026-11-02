@@ -62,6 +62,26 @@ def test_surface_z_matches_nodes() -> None:
             assert float(grid.surface_z(x, y)) == pytest.approx(float(grid.heights[j, i]))
 
 
+def test_surface_normal_follows_the_plane() -> None:
+    grid = plane_grid(slope_x=0.02, slope_y=0.01)
+    rng = np.random.default_rng(1)
+    x = rng.uniform(grid.x0, grid.bounds[2], 20)
+    y = rng.uniform(grid.y0, grid.bounds[3], 20)
+
+    normals = grid.surface_normal(x, y)
+
+    expected = np.array([-0.02, -0.01, 1.0])
+    expected = expected / np.linalg.norm(expected)
+    assert normals.shape == (20, 3)
+    assert np.allclose(normals, expected, atol=1e-9)
+
+
+def test_surface_normal_is_upward_on_a_flat_grid() -> None:
+    grid = plane_grid(slope_x=0.0, slope_y=0.0)
+
+    assert np.allclose(grid.surface_normal(2.0, 3.0), [0.0, 0.0, 1.0])
+
+
 def test_surface_z_is_continuous_across_the_cell_diagonal() -> None:
     heights = np.array([[0.0, 1.0], [4.0, 7.0]])
     grid = TerrainGrid(heights=heights, x0=0.0, y0=0.0, dx=10.0, dy=10.0)
