@@ -1,0 +1,22 @@
+{
+  "case": "300m block on a synthetic ramp",
+  "metrics": {
+    "buildings": 25,
+    "triangles": 820,
+    "volume_m3": 1315499.123,
+    "area_m2": 266567.925,
+    "bounds": [
+      -30.0,
+      -30.0,
+      -1.0,
+      300.0,
+      300.0,
+      41.986671
+    ],
+    "weld_repairs": 0,
+    "watertight": true,
+    "non_manifold_edges": 0,
+    "terrain_triangles": 372,
+    "max_border_overhang_m": 1.404
+  }
+}

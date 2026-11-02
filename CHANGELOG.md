@@ -4,6 +4,13 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- CI: GitHub Actions runs `ruff check app tests` and the offline `pytest` suite
+  on every push and pull request.
+- Golden geometry test: `tests/test_golden.py` builds a fixed 300 m
+  25-building block on a synthetic terrain ramp and compares triangle count,
+  volume, surface area, bounds, weld repairs, watertightness, non-manifold
+  edges, and the maximum terrain border step against
+  `tests/golden/city_300m.json` (tolerances; refresh with `UPDATE_GOLDEN=1`).
 - Untagged buildings now prefer heights from similarly sized OSM buildings: each
   known height is paired with its footprint area, and a draw for a target
   footprint uses observations within 0.25–4× its area, falling back to the whole

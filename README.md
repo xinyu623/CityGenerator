@@ -384,6 +384,20 @@ written to binary STL and loaded again. Terrain tests cover plane/diagonal
 sampling, conservative footprint minima, closed terrain solids, watertight
 building-on-slope unions, and Terrarium tile decoding/mosaicking.
 
+CI runs `ruff check app tests` and the offline `pytest` suite on every push and
+pull request (`.github/workflows/ci.yml`). `tests/test_golden.py` builds a fixed
+300 m 25-building block on a synthetic terrain ramp and compares triangle count,
+volume, surface area, bounds, weld repairs, watertightness, non-manifold edges,
+and the maximum terrain border step against `tests/golden/city_300m.json`, so a
+geometry change shows up as a reviewable diff. After an intended change,
+regenerate it and review the JSON:
+
+```powershell
+$env:UPDATE_GOLDEN = "1"
+.\.venv\Scripts\python.exe -m pytest tests/test_golden.py
+Remove-Item Env:UPDATE_GOLDEN
+```
+
 ## Limits (v2)
 
 Terrain is a smoothed 30 m grid sampled from ~30 m DEM data: it is not a survey,
