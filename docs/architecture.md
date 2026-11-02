@@ -376,7 +376,7 @@ only ≈0.3 s — `trimesh` already runs a balanced pairwise cascade, `Manifold`
 `batch_boolean` is only marginally faster, and grouping shells across threads
 was slower (the Manifold bindings hold the GIL), so the post-union work was the
 lever: the collapsed-vertex nudge, the non-manifold edge census, and repeated
-validation. Those now cost about half of what they did (fuse 4.41 → 2.18 s on
+validation. Those now cost about half of what they did (fuse 4.41 → ≈2.4 s on
 the earlier 81 864-triangle geometry, with identical triangles, volume, zero
 welds, watertight). Sustained CPU load throttles the development machine by
 roughly 4×, so compare before/after runs interleaved rather than against an

@@ -47,11 +47,12 @@ All notable changes to CityGenerator are recorded here.
   and the result zip are not included.
 - Fusion is about 2× faster. The float32-collapse nudge now looks up one
   packed integer key per neighbour cell instead of building 27 coordinate
-  tuples per vertex; the non-manifold edge census packs each sorted edge into
-  one integer key instead of sorting a structured array; and the fused mesh is
+  tuples per vertex (all 27 cells are still scanned, so cross-cell pairs cannot
+  slip through); the non-manifold edge census packs each sorted edge into one
+  integer key instead of sorting a structured array; and the fused mesh is
   validated once instead of twice (in `fuse_city` and again for the written
-  STL). On the cached 4×4 km sample (1 696 buildings) `fuse` drops 4.41 → 2.18 s
-  and the whole run 17.5 → 13.9 s, with identical triangles (81 864), volume
+  STL). On the cached 4×4 km sample (1 696 buildings) `fuse` drops 4.41 → ≈2.4 s
+  and the whole run 17.5 → ≈14 s, with identical triangles (81 864), volume
   (1.32476e9 m³), zero weld repairs, watertight and zero non-manifold edges.
   The boolean union itself was already a balanced pairwise cascade (≈0.3 s);
   `Manifold.batch_boolean` saved only ~0.1 s and grouping across threads was
