@@ -8,6 +8,7 @@ run in a terminal, a batch script, or a cluster job without uvicorn.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -47,6 +48,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--out", required=True, type=Path, help="output (job) directory")
     parser.add_argument("--height", type=float, default=25.0, help="default building height, m")
+    parser.add_argument(
+        "--max-height",
+        type=float,
+        default=300.0,
+        help=(
+            "ceiling for a tagged height, m; raise it for a selection with a supertall "
+            "so the landmark keeps its recorded height"
+        ),
+    )
+    parser.add_argument(
+        "--height-overrides",
+        type=Path,
+        default=None,
+        help='JSON object mapping an OSM id to a height in metres, e.g. {"40778038": 468}',
+    )
     parser.add_argument("--level-height", type=float, default=3.0, help="storey height, m")
     parser.add_argument("--embed", type=float, default=0.5, help="bottom embed depth, m")
     parser.add_argument("--ground-margin", type=float, default=0.0, help="base margin, m")
@@ -123,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     overrides: dict[str, object] = {}
     if args.data_dir:
         overrides["data_dir"] = args.data_dir
+    overrides["max_height_m"] = args.max_height
     if args.conservative_heights:
         overrides["height_sampling_conservative"] = True
     elif args.no_conservative_heights:
@@ -130,6 +147,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.slenderness_k is not None:
         overrides["height_sampling_slenderness_k"] = args.slenderness_k
     settings = Settings(**overrides)  # type: ignore[arg-type]
+    height_overrides: dict[str, float] = {}
+    if args.height_overrides is not None:
+        try:
+            loaded = json.loads(args.height_overrides.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"error [HEIGHT_OVERRIDES_INVALID] {exc}", file=sys.stderr)
+            return 1
+        if not isinstance(loaded, dict):
+            print("error [HEIGHT_OVERRIDES_INVALID] expected a JSON object", file=sys.stderr)
+            return 1
+        height_overrides = {str(key): float(value) for key, value in loaded.items()}
     request = GenerateRequest(
         bbox=args.bbox,
         options={
@@ -139,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             "ground_margin_m": args.ground_margin,
             "simplify_m": args.simplify,
             "min_building_area_m2": args.min_area,
+            "height_overrides": height_overrides,
             "terrain": {
                 "enabled": not args.no_terrain,
                 "resolution_m": args.terrain_resolution,

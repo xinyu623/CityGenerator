@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import threading
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -488,6 +488,21 @@ def _footprint_area_m2(geometry: Any) -> float:
     return area_deg2 * metres_per_degree_sq
 
 
+def _override_height(
+    overrides: Mapping[str, float] | None,
+    feature: BuildingFeature,
+) -> float | None:
+    """An explicit height for one OSM object, keyed ``"123"`` or ``"way/123"``."""
+
+    if not overrides:
+        return None
+    for key in (f"{feature.osm_type}/{feature.osm_id}", str(feature.osm_id)):
+        value = overrides.get(key)
+        if value is not None:
+            return float(value)
+    return None
+
+
 def _known_height_pairs(
     features: Sequence[BuildingFeature],
     default_height_m: float,
@@ -617,6 +632,8 @@ def prepare_buildings(
     min_height_samples: int = 5,
     height_conservative: bool = False,
     height_slenderness_k: float = 8.0,
+    max_height_m: float = 300.0,
+    height_overrides: Mapping[str, float] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> PreparedBuildings:
@@ -688,7 +705,15 @@ def prepare_buildings(
             feature.tags,
             default_height_m=default_height_m,
             level_height_m=level_height_m,
+            max_height_m=max_height_m,
         )
+        override = _override_height(height_overrides, feature)
+        if override is not None:
+            height = HeightInfo(
+                height_m=min(float(override), float(max_height_m)),
+                base_m=height.base_m,
+                source="override",
+            )
         height_rule = ""
         if sampler is not None and height.source == "default":
             footprint_area_m2 = math.fsum(polygon.area for polygon in polygons)
@@ -933,6 +958,8 @@ def build_meshes(
     min_height_samples: int = 5,
     height_conservative: bool = False,
     height_slenderness_k: float = 8.0,
+    max_height_m: float = 300.0,
+    height_overrides: Mapping[str, float] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> BuildResult:
@@ -951,6 +978,8 @@ def build_meshes(
         min_height_samples=min_height_samples,
         height_conservative=height_conservative,
         height_slenderness_k=height_slenderness_k,
+        max_height_m=max_height_m,
+        height_overrides=height_overrides,
         cancel_event=cancel_event,
     )
     return extrude_prepared(

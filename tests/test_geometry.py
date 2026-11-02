@@ -365,6 +365,43 @@ def _feature(
     )
 
 
+def test_height_overrides_beat_sampling():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes"}, 0.000),
+        _feature(2, {"building": "yes"}, 0.002),
+        _feature(3, {"building": "yes"}, 0.004),
+        _feature(4, {"building": "yes", "height": "20"}, 0.006),
+        _feature(5, {"building": "yes", "height": "30"}, 0.008),
+    ]
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=2,
+        height_seed=7,
+        max_height_m=700.0,
+        height_overrides={"3": 468.0, "way/2": 200.0, "999": 50.0},
+    )
+
+    heights = {item.osm_id: item.height_m for item in prepared.items}
+    sources = {item.osm_id: item.height_source for item in prepared.items}
+    assert sources[3] == "override" and heights[3] == pytest.approx(468.0)
+    assert sources[2] == "override" and heights[2] == pytest.approx(200.0)
+    assert sources[1] == "sampled"
+
+    capped = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=2,
+        height_seed=7,
+        max_height_m=300.0,
+        height_overrides={"3": 468.0},
+    )
+    capped_heights = {item.osm_id: item.height_m for item in capped.items}
+    assert capped_heights[3] == pytest.approx(300.0)
+
+
 def test_missing_heights_are_sampled_from_the_area_distribution():
     projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
     features = [

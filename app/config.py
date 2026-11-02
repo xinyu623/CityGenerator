@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     # implausibly slender tail.
     height_sampling_conservative: bool = False
     height_sampling_slenderness_k: float = Field(default=8.0, allow_inf_nan=False)
+    # Ceiling for a tagged height. Raise it for a selection holding a supertall
+    # (Lujiazui 632 m, Beijing CBD 528 m) so the landmark keeps its recorded
+    # height; sampled heights keep their own 300 m cap.
+    max_height_m: float = 300.0
 
     # Terrain / DEM elevation source.
     terrain_enabled_default: bool = True

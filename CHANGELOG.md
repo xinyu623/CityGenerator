@@ -23,10 +23,23 @@ All notable changes to CityGenerator are recorded here.
   `ground` patch. On the 4×4 km Chongqing selection the border previously stood
   up to 156 m above the datum; with `--terrain-edge-taper 250` the model is
   4.5 km square and the border is flat at `z = 0`.
+- New `options.height_overrides` (`--height-overrides FILE`) for landmarks the
+  outline has but the tags do not: a JSON object of OSM id → height in metres sets
+  `height_source = "override"`, skips both tag parsing and sampling, and honours
+  the run's ceiling. The Oriental Pearl Tower (`building=yes` plus
+  `man_made=communications_tower`, no `height`) was being sampled to 23 m; at
+  468 m it now reads as the landmark it is, and the Canton Tower
+  (`building:levels=37` → 111 m) is pinned at 600 m.
+- New `max_height_m` setting (`CITYGEN_MAX_HEIGHT_M`, `--max-height`, default
+  300 m) raises the ceiling for a *tagged* height only. Beijing's CITIC Tower
+  (528 m), Shanghai Tower (632 m), Ping An (599 m) and Changsha IFS (452 m) were
+  all truncated at 300 m in the six-city run; the sampler keeps its own 300 m cap
+  and its pool still censors observations above 300 m, so a raised ceiling never
+  teaches a guess to invent a supertall.
 - Added the six-city core-area parameter set and runner
   (`docs/plans/2026-11-02-six-city-core-stl.md`, `scratch/run_six.ps1`): 4×4 km
-  selections for Beijing (old city), Shanghai (Jing'an), Guangzhou (Zhujiang New
-  Town), Shenzhen (Futian), Changsha (Wuyi Square) and Chongqing
+  selections for Beijing (Guomao CBD), Shanghai (Lujiazui), Guangzhou (Zhujiang
+  New Town), Shenzhen (Futian), Changsha (Wuyi Square) and Chongqing
   (Jiefangbei/Chaotianmen, the only terrain run).
 
 ## [2.2.0] - 2026-11-02

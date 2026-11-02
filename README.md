@@ -83,10 +83,10 @@ Without installing the console script:
 ```
 
 `--bbox` is `south,west,north,east`. Other flags mirror the request options:
-`--height`, `--level-height`, `--embed`, `--ground-margin`, `--simplify`,
-`--min-area`, `--terrain-resolution`, `--terrain-edge-taper`, `--no-terrain`,
-`--refresh`, `--conservative-heights`, `--slenderness-k`, `--data-dir` (cache
-root), and
+`--height`, `--max-height`, `--height-overrides`, `--level-height`, `--embed`,
+`--ground-margin`, `--simplify`, `--min-area`, `--terrain-resolution`,
+`--terrain-edge-taper`, `--no-terrain`, `--refresh`, `--conservative-heights`,
+`--slenderness-k`, `--data-dir` (cache root), and
 `--quiet`. The CLI writes the same
 `city.stl`/`patches.json`/`metadata.json`/`buildings.geojson`/`README.txt`/
 `result.zip` bundle into `<out>/output/` and returns a non-zero exit code with
@@ -272,12 +272,20 @@ Useful `metadata.json → terrain` fields:
    `python -m app.services.height_report --output <job> --check` to compare the
    sampled tail with the tagged pool. The skyline is locally plausible but still
    estimated, not surveyed.
-6. Review `city.weld_repairs` if you need to know whether touching footprints
+6. Supertalls are truncated by the default 300 m ceiling. Add `--max-height 700`
+   to keep a real landmark's height; only *tagged* heights are raised, sampled
+   heights stay estimates capped at 300 m. For a landmark whose outline exists
+   but whose height tag does not, pass `--height-overrides FILE` (a JSON object
+   of `{"osm id": height_m}`); a hit is recorded as
+   `height_source = "override"`. The Oriental Pearl Tower, for example, is
+   `building=yes` plus `man_made=communications_tower` with no `height`, and is
+   otherwise sampled as an ordinary 23 m building.
+7. Review `city.weld_repairs` if you need to know whether touching footprints
    required local contact repairs. A healthy run needs `0`.
-7. If your mesh generator struggles with the terrain block, re-run with terrain
+8. If your mesh generator struggles with the terrain block, re-run with terrain
    disabled or a coarser `terrain.resolution_m`; the flat slab uses far fewer
    triangles.
-8. This tool stops at surface STL. It does not create a volume mesh, boundary
+9. This tool stops at surface STL. It does not create a volume mesh, boundary
    layers, turbulence settings, or solver dictionaries.
 
 ## API

@@ -75,10 +75,10 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 ```
 
 `--bbox` 顺序为 `south,west,north,east`；其余参数与请求选项一致：
-`--height`、`--level-height`、`--embed`、`--ground-margin`、`--simplify`、
-`--min-area`、`--terrain-resolution`、`--terrain-edge-taper`、`--no-terrain`、
-`--refresh`、`--conservative-heights`、`--slenderness-k`、`--data-dir`
-（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
+`--height`、`--max-height`、`--height-overrides`、`--level-height`、`--embed`、
+`--ground-margin`、`--simplify`、`--min-area`、`--terrain-resolution`、
+`--terrain-edge-taper`、`--no-terrain`、`--refresh`、`--conservative-heights`、
+`--slenderness-k`、`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
 下的 `city.stl` 等六个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
 
 ## 输出内容
@@ -235,6 +235,11 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
    `python -m app.services.height_report --output <job> --check` 对比采样结果
    与已知高度池的尾部占比。天际线贴近本地实际，但仍是估计值，不是实测高度。
 6. 如需了解是否有建筑轮廓发生接触修复，查看 `city.weld_repairs`；正常结果应为 `0`。
+7. 超高层会被默认的 300 m 上限截断。要保留真实地标，加 `--max-height 700`（只放宽
+   **标签**给出的高度；抽样高度仍是 ≤300 m 的估计）。轮廓在、标签缺失的地标用
+   `--height-overrides FILE`，文件是 `{"OSM id": 高度}` 的 JSON 对象，命中的建筑
+   记为 `height_source = "override"`。例：东方明珠是 `building=yes` +
+   `man_made=communications_tower`、没有 `height`，默认会被抽成 23 m。
 7. 如果网格工具处理地形块较吃力，可关闭地形重跑，或把
    `terrain.resolution_m` 调粗；平整底座的三角形数少得多。
 8. 本工具只输出表面 STL，不生成体网格、边界层、湍流参数或求解器算例。

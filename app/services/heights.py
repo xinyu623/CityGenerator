@@ -28,6 +28,12 @@ AREA_BANDWIDTH_LOG = 0.5
 AREA_RATIO_MIN = 0.5
 AREA_RATIO_MAX = 2.0
 
+# Default ceiling for a resolved height. A supertall selection (Lujiazui's 632 m
+# Shanghai Tower, Beijing's 528 m CITIC Tower) raises it per run so a tagged
+# landmark keeps its recorded height; sampled heights keep their own 300 m cap,
+# because a guess should not invent a landmark.
+MAX_HEIGHT_M = 300.0
+
 # ``building`` tag values, grouped so a sparse tag can borrow from its neighbours
 # instead of falling back to the whole pool.
 _TYPE_GROUPS: dict[str, str] = {
@@ -216,6 +222,7 @@ def resolve_height(
     tags: Mapping[str, Any],
     default_height_m: float = 25.0,
     level_height_m: float = 3.0,
+    max_height_m: float = MAX_HEIGHT_M,
 ) -> HeightInfo:
     """Resolve total height and base elevation from OSM tags.
 
@@ -244,8 +251,8 @@ def resolve_height(
         if min_level is not None:
             base = min_level * level_height_m
 
-    if height > 300.0:
-        height = 300.0
+    if height > max_height_m:
+        height = float(max_height_m)
         clamped = True
     if height < 2.0:
         height = 2.0

@@ -258,6 +258,82 @@ def test_pipeline_grows_the_terrain_frame_by_the_taper(
     assert bounds[3] == pytest.approx(core[3] + 120.0)
 
 
+def test_cli_parser_accepts_a_raised_height_ceiling(tmp_path, monkeypatch):
+    args = build_parser().parse_args(["--bbox", "1,2,3,4", "--out", "x"])
+    assert args.max_height == pytest.approx(300.0)
+
+    raised = build_parser().parse_args(
+        ["--bbox", "1,2,3,4", "--out", "x", "--max-height", "700"]
+    )
+    assert raised.max_height == pytest.approx(700.0)
+
+    import app.cli as cli_module
+
+    captured: dict[str, object] = {}
+
+    class Stop(Exception):
+        pass
+
+    def spy(request, settings, out, progress_cb=None):
+        captured["max_height_m"] = settings.max_height_m
+        raise Stop
+
+    monkeypatch.setattr(cli_module, "run_pipeline", spy)
+    with pytest.raises(Stop):
+        main(
+            [
+                "--bbox",
+                BBOX,
+                "--out",
+                str(tmp_path / "job"),
+                "--data-dir",
+                str(tmp_path / "data"),
+                "--max-height",
+                "700",
+            ]
+        )
+    assert captured["max_height_m"] == pytest.approx(700.0)
+
+
+def test_cli_loads_height_overrides(tmp_path, monkeypatch):
+    import app.cli as cli_module
+
+    path = tmp_path / "overrides.json"
+    path.write_text('{"40778038": 468}', encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class Stop(Exception):
+        pass
+
+    def spy(request, settings, out, progress_cb=None):
+        captured["overrides"] = request.options.height_overrides
+        raise Stop
+
+    monkeypatch.setattr(cli_module, "run_pipeline", spy)
+    with pytest.raises(Stop):
+        main(
+            [
+                "--bbox", BBOX,
+                "--out", str(tmp_path / "job"),
+                "--data-dir", str(tmp_path / "data"),
+                "--height-overrides", str(path),
+            ]
+        )
+    assert captured["overrides"] == {"40778038": 468.0}
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("[1, 2]", encoding="utf-8")
+    code = main(
+        [
+            "--bbox", BBOX,
+            "--out", str(tmp_path / "job2"),
+            "--data-dir", str(tmp_path / "data"),
+            "--height-overrides", str(bad),
+        ]
+    )
+    assert code == 1
+
+
 def test_summary_prints_on_a_gbk_console(tmp_path, capsys):
     # Windows consoles default to GBK, which has no "²"; a finished job must
     # still print its summary there instead of crashing after the work is done.

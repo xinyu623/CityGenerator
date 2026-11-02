@@ -45,6 +45,11 @@ class GenerateOptions(BaseModel):
     ground_margin_m: float = Field(default=0.0, ge=0.0, le=500.0)
     simplify_m: float = Field(default=0.05, ge=0.0, le=2.0)
     min_building_area_m2: float = Field(default=4.0, ge=1.0, le=1000.0)
+    # Explicit heights for individual OSM objects, keyed by "123" or "way/123" /
+    # "relation/123". A landmark whose outline is mapped but whose height tag is
+    # missing (the Oriental Pearl Tower) would otherwise be sampled like an
+    # ordinary building.
+    height_overrides: dict[str, float] = Field(default_factory=dict)
     terrain: TerrainOptions = Field(default_factory=TerrainOptions)
 
 

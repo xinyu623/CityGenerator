@@ -97,6 +97,24 @@ def test_resolve_height_clamps_extremes():
     assert info.clamped is True
 
 
+def test_resolve_height_honours_a_raised_ceiling():
+    info = resolve_height({"height": "528"}, max_height_m=700.0)
+    assert info.height_m == pytest.approx(528.0)
+    assert info.clamped is False
+
+    still = resolve_height({"height": "750"}, max_height_m=700.0)
+    assert still.height_m == pytest.approx(700.0)
+    assert still.clamped is True
+
+
+def test_sampling_never_copies_a_supertall_from_the_pool():
+    # A raised ceiling keeps a landmark's own tag but must not teach the sampler
+    # to invent 600 m footprints: the pool still censors at 300 m.
+    sampler = HeightSampler([600.0, 30.0, 20.0, 18.0, 25.0], seed=0)
+    assert len(sampler) == 4
+    assert max(sampler.draw(500.0).height_m for _ in range(50)) <= 300.0
+
+
 def test_resolve_height_never_below_base():
     info = resolve_height({"height": "5", "min_height": "4.5"})
     assert info.height_m > info.base_m
