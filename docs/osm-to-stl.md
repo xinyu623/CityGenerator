@@ -116,7 +116,9 @@ For each footprint, height is resolved in this order:
    band-fallback draws, and how many sampled buildings and pool observations are
    above 100 m and 250 m, by type group. `sampled` counts prepared polygon parts
    (a multi-polygon building once per part), `sampled_buildings` counts distinct
-   OSM buildings, and the tail counts are per building.
+   OSM buildings, and the tail counts are per building. `type_capped` counts
+   draws whose final rule is `type_cap`; a draw that the conservative bound
+   lowers again reports `conservative_cap`.
 
    **Conservative mode.** `--conservative-heights`
    (`CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=true`) also caps every sampled height
