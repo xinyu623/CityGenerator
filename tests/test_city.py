@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import numpy as np
 import trimesh
 from trimesh.creation import box
 
-from app.services.city import FusedCity, fuse_city
+from app.services.city import (
+    COLLAPSE_TOLERANCE_M,
+    FusedCity,
+    fuse_city,
+    separate_collapsed_vertices,
+)
 from app.services.errors import CityUnionError
 from app.services.stl_export import (
     export_stl_bytes,
@@ -75,3 +81,26 @@ def test_fused_city_rejects_open_building() -> None:
         pass
     else:
         raise AssertionError("an open building should not produce a closed city")
+
+
+def test_separate_collapsed_vertices_moves_sub_tolerance_pairs_apart() -> None:
+    mesh = trimesh.Trimesh(
+        vertices=[
+            [0.0, 0.0, 0.0],
+            [0.0002, 0.0, 0.0],
+            [0.0003, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        faces=[[0, 1, 2], [1, 2, 3]],
+        process=False,
+    )
+
+    moved = separate_collapsed_vertices(mesh)
+
+    # The lowest index of a cluster stays put; the others move until every
+    # remaining pair is at least the tolerance apart.
+    assert moved == 3
+    assert np.array_equal(mesh.vertices[0], [0.0, 0.0, 0.0])
+    distances = np.linalg.norm(mesh.vertices[:, None] - mesh.vertices[None], axis=-1)
+    np.fill_diagonal(distances, np.inf)
+    assert distances.min() >= COLLAPSE_TOLERANCE_M

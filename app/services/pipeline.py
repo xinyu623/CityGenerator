@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,6 +117,18 @@ def run_pipeline(
     cancel = cancel_event or threading.Event()
     job_dir.mkdir(parents=True, exist_ok=True)
 
+    started = time.perf_counter()
+    stage_started = started
+    timings: dict[str, float] = {}
+
+    def mark(stage: str) -> None:
+        """Record the wall time since the previous stage boundary."""
+
+        nonlocal stage_started
+        now = time.perf_counter()
+        timings[stage] = round(now - stage_started, 3)
+        stage_started = now
+
     def check_cancel() -> None:
         if cancel.is_set():
             raise JobCancelled("任务已取消")
@@ -127,6 +140,7 @@ def run_pipeline(
             "选择区域过大",
             f"当前 {area:.2f} km²，上限 {settings.max_area_km2:g} km²",
         )
+    mark("validate")
 
     progress(4, "fetching", "从 Overpass 获取建筑数据")
 
@@ -147,6 +161,7 @@ def run_pipeline(
     finally:
         overpass.close()
     write_json_atomic(job_dir / "raw_osm.json", fetched.raw)
+    mark("fetch")
     check_cancel()
 
     progress(22, "parsing", "解析 OSM 建筑轮廓")
@@ -158,10 +173,12 @@ def run_pipeline(
             "建筑数量过多",
             f"当前 {len(features)} 栋，上限 {settings.max_buildings} 栋",
         )
+    mark("parse")
 
     progress(30, "projecting", "投影到局部米制坐标")
     projector = projector_for_bbox(*request.bbox.as_tuple())
     check_cancel()
+    mark("project")
 
     progress(34, "building", "清理建筑轮廓并解析高度")
 
@@ -189,6 +206,7 @@ def run_pipeline(
 
     if not prepared.items:
         raise NoBuildingsError("建筑轮廓均无效，未能生成任何模型")
+    mark("prepare")
 
     bbox_bounds = bbox_local_bounds(projector, request)
     combined_bounds = _union_bounds(bbox_bounds, prepared.bounds)
@@ -221,6 +239,7 @@ def run_pipeline(
         except BuildCancelled as exc:
             raise JobCancelled("任务已取消") from exc
         check_cancel()
+    mark("terrain")
     progress(40, "building", "挤出建筑并贴合地形")
 
     def build_progress(done: int, total: int) -> None:
@@ -238,6 +257,7 @@ def run_pipeline(
         )
     except BuildCancelled as exc:
         raise JobCancelled("任务已取消") from exc
+    mark("build")
 
     if not build_result.meshes:
         raise NoBuildingsError("建筑轮廓均无效，未能生成任何模型")
@@ -272,6 +292,7 @@ def run_pipeline(
             mode="slab",
             thickness_m=settings.ground_slab_thickness_m,
         )
+    mark("ground")
 
     check_cancel()
     progress(84, "fusing", "融合建筑与地面")
@@ -280,6 +301,7 @@ def run_pipeline(
         base,
         base_thickness_m=settings.ground_slab_thickness_m,
     )
+    mark("fuse")
 
     check_cancel()
     progress(90, "exporting", "写出 STL、元数据和下载包")
@@ -296,6 +318,8 @@ def run_pipeline(
         settings=settings,
         warnings=warnings,
         terrain=terrain,
+        timings=timings,
+        started_at=started,
     )
 
     stats: dict[str, Any] = {
@@ -316,6 +340,7 @@ def run_pipeline(
         "terrain_resolution_m": round(terrain.resolution_m, 2) if terrain is not None else 0.0,
         "terrain_source": str(terrain.meta.get("source", "")) if terrain is not None else "flat",
         "terrain_triangles": terrain.triangle_count if terrain is not None else 0,
+        "timings_s": timings,
     }
     progress(100, "completed", "生成完成")
 

@@ -13,6 +13,23 @@ All notable changes to CityGenerator are recorded here.
   split (bbox, depth, child count, error) and `source.overpass_cell_times` the
   elapsed time of every cell, including cache hits. A cell that cannot be
   subdivided still fails the job.
+- Every run records stage wall times in `stats["timings_s"]` and
+  `metadata.json → timings_s` (`validate`, `fetch`, `parse`, `project`,
+  `prepare`, `terrain`, `build`, `ground`, `fuse`, `export`, `total`), so a
+  performance change is measurable from the output alone. The timings are a
+  snapshot taken just before `metadata.json` is written, so the metadata write
+  and the result zip are not included.
+- Fusion is about 2× faster. The float32-collapse nudge now looks up one
+  packed integer key per neighbour cell instead of building 27 coordinate
+  tuples per vertex; the non-manifold edge census packs each sorted edge into
+  one integer key instead of sorting a structured array; and the fused mesh is
+  validated once instead of twice (in `fuse_city` and again for the written
+  STL). On the cached 4×4 km sample (1 696 buildings) `fuse` drops 4.41 → 2.18 s
+  and the whole run 17.5 → 13.9 s, with identical triangles (81 864), volume
+  (1.32476e9 m³), zero weld repairs, watertight and zero non-manifold edges.
+  The boolean union itself was already a balanced pairwise cascade (≈0.3 s);
+  `Manifold.batch_boolean` saved only ~0.1 s and grouping across threads was
+  slower, so the post-union validation was the real lever.
 - Headless CLI: `citygen --bbox s,w,n,e --out DIR` (or `python -m app.cli`)
   runs the whole pipeline without uvicorn and returns a non-zero exit code with
   the error code on failure.

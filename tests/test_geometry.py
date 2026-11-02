@@ -142,6 +142,16 @@ def test_non_manifold_edge_count_detects_touching_shells():
     assert non_manifold_edge_count(combined) > 0
 
 
+def test_non_manifold_edge_count_counts_an_edge_shared_by_three_faces_once():
+    # Three triangles share the edge (0, 1): exactly one non-manifold edge.
+    mesh = trimesh.Trimesh(
+        vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1]],
+        faces=[[0, 1, 2], [0, 1, 3], [0, 1, 4]],
+        process=False,
+    )
+    assert non_manifold_edge_count(mesh) == 1
+
+
 def _prepared(*polygons: Polygon, height: float = 12.0) -> PreparedBuildings:
     return PreparedBuildings(
         items=[

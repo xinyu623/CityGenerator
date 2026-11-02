@@ -37,29 +37,49 @@ def separate_collapsed_vertices(
 
     The mesh stays topologically identical (watertight, manifold); only a few
     vertices shift by about a millimetre, far below any modelling scale.
+
+    Vertices are bucketed into cells of ``tolerance_m``; only the 14
+    lexicographically positive neighbour directions (including the cell itself)
+    are visited, because the other 13 are the same pair seen from the other
+    endpoint. Packing the cell coordinates into a Python int keeps the lookup at
+    one dict access per candidate direction; at 0.5 mm over 4 km the packed key
+    is wider than int64, which is why plain Python ints are used.
     """
 
     if tolerance_m <= 0.0 or not len(mesh.vertices):
         return 0
     vertices = mesh.vertices
     cells = np.floor(vertices / tolerance_m).astype(np.int64)
-    buckets: dict[tuple[int, int, int], list[int]] = {}
-    for index, cell in enumerate(map(tuple, cells)):
-        buckets.setdefault(cell, []).append(index)
+    # Shift so every cell is >= 1: a -1 neighbour then never underflows.
+    cells -= cells.min(axis=0) - 1
+    span = cells.max(axis=0) + 2
+    stride_y = int(span[2])
+    stride_x = int(span[1]) * stride_y
+    buckets: dict[int, list[int]] = {}
+    keys: list[int] = []
+    for index, (x, y, z) in enumerate(cells.tolist()):
+        key = x * stride_x + y * stride_y + z
+        buckets.setdefault(key, []).append(index)
+        keys.append(key)
+
+    deltas = [0] + [
+        dx * stride_x + dy * stride_y + dz
+        for dx in (-1, 0, 1)
+        for dy in (-1, 0, 1)
+        for dz in (-1, 0, 1)
+        if (dx, dy, dz) > (0, 0, 0)
+    ]
+    shift = np.array([shift_m, shift_m, 0.0])
 
     moved = 0
-    offsets = [
-        (dx, dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)
-    ]
     for index in range(len(vertices)):
-        cell = cells[index]
-        key = (int(cell[0]), int(cell[1]), int(cell[2]))
-        for dx, dy, dz in offsets:
-            for other in buckets.get((key[0] + dx, key[1] + dy, key[2] + dz), ()):
+        base = keys[index]
+        for delta in deltas:
+            for other in buckets.get(base + delta, ()):
                 if other <= index:
                     continue
                 if np.linalg.norm(vertices[other] - vertices[index]) < tolerance_m:
-                    vertices[other] += np.array([shift_m, shift_m, 0.0])
+                    vertices[other] += shift
                     moved += 1
     if moved:
         mesh.vertices = vertices
@@ -148,8 +168,12 @@ def _stl_roundtrip_is_closed(mesh: trimesh.Trimesh) -> bool:
     return bool(loaded.is_watertight and non_manifold_edge_count(loaded) == 0)
 
 
-def validate_city(mesh: trimesh.Trimesh) -> None:
-    """Raise ``CityUnionError`` unless the fused mesh is a closed solid."""
+def validate_city(mesh: trimesh.Trimesh) -> int:
+    """Raise ``CityUnionError`` unless the fused mesh is a closed solid.
+
+    Returns the non-manifold edge count (zero on success) so callers that record
+    it do not have to run the edge census a second time.
+    """
 
     if not len(mesh.faces):
         raise CityUnionError("融合结果没有三角形")
@@ -170,6 +194,7 @@ def validate_city(mesh: trimesh.Trimesh) -> None:
             f"融合结果仍有 {non_manifold} 条非流形边",
             detail="布尔并集未能形成单一流形表面",
         )
+    return non_manifold
 
 
 def fuse_city(
@@ -226,7 +251,6 @@ def fuse_city(
         )
 
     assert fused is not None
-    validate_city(fused)
     bounds = np.asarray(base.bounds, dtype=float)
     return FusedCity(
         mesh=fused,

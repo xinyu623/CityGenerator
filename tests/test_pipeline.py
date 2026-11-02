@@ -109,6 +109,10 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch, synthetic_terr
     assert metadata["source"]["overpass_splits"][0]["detail"] == "Overpass 返回 HTTP 504"
     assert metadata["source"]["overpass_cell_times"][0]["seconds"] == 0.25
     assert metadata["attribution"].startswith("© OpenStreetMap")
+    timings = result.stats["timings_s"]
+    assert {"fetch", "build", "ground", "fuse", "export", "total"} <= set(timings)
+    assert timings["total"] >= timings["fuse"] >= 0.0
+    assert metadata["timings_s"] == timings
     assert metadata["buildings"]["each_shell_watertight"] is True
     assert metadata["city"]["watertight"] is True
     assert metadata["city"]["winding_consistent"] is True

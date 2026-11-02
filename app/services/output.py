@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,11 +19,7 @@ from app.services.city import FusedCity, validate_city
 from app.services.errors import CityUnionError
 from app.services.io_utils import utc_now_iso, write_bytes_atomic, write_json_atomic
 from app.services.projection import Projector
-from app.services.stl_export import (
-    export_stl_bytes,
-    load_stl_bytes,
-    non_manifold_edge_count,
-)
+from app.services.stl_export import export_stl_bytes, load_stl_bytes
 from app.services.terrain import TerrainGrid
 
 SCHEMA_VERSION = "2.0"
@@ -296,9 +293,13 @@ def write_outputs(
     settings: Settings,
     warnings: list[WarningItem],
     terrain: TerrainGrid | None = None,
+    timings: dict[str, float] | None = None,
+    started_at: float | None = None,
 ) -> OutputBundle:
     output_dir = job_dir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
+    export_started = time.perf_counter()
+    pipeline_started = export_started if started_at is None else started_at
 
     city_bytes = export_stl_bytes(city.mesh)
     write_bytes_atomic(output_dir / "city.stl", city_bytes)
@@ -316,8 +317,7 @@ def write_outputs(
         )
     if not loaded.is_watertight:
         raise CityUnionError("city.stl 回读后不再是水密表面")
-    validate_city(loaded)
-    written_non_manifold = non_manifold_edge_count(loaded)
+    written_non_manifold = validate_city(loaded)
 
     metadata = _build_metadata(
         job_id=job_id,
@@ -334,13 +334,20 @@ def write_outputs(
     )
     metadata["files"] = names + ["metadata.json", "buildings.geojson", "README.txt"]
 
-    write_json_atomic(output_dir / "metadata.json", metadata)
     write_json_atomic(output_dir / "buildings.geojson", _geojson(build_result))
     write_bytes_atomic(
         output_dir / "README.txt",
         _readme_text(metadata).encode("utf-8"),
     )
     names.extend(["metadata.json", "buildings.geojson", "README.txt"])
+
+    if timings is not None:
+        # Timings are a snapshot taken just before metadata.json is written: the
+        # metadata write itself and the result zip come after.
+        timings["export"] = round(time.perf_counter() - export_started, 3)
+        timings["total"] = round(time.perf_counter() - pipeline_started, 3)
+    metadata["timings_s"] = timings or {}
+    write_json_atomic(output_dir / "metadata.json", metadata)
 
     zip_path = output_dir / "result.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:

@@ -355,6 +355,22 @@ cleanup, extrusion, and STL writing. For a 671-building / 0.98 km² area
 - cold: ~55 s (Overpass ~49 s);
 - cached: ~8.1 s.
 
+`metadata.json → timings_s` records `fetch`, `parse`, `prepare`, `terrain`,
+`build`, `ground`, `fuse`, `export`, and `total` for every run (a snapshot taken
+just before `metadata.json` is written; the zip comes after).
+
+For the cached 4×4 km Chongqing sample (1 696 buildings, 81 864 triangles,
+39 460 terrain triangles) `total` is ≈14 s: `build` ≈8.1 s dominates, `fuse`
+≈2.2 s, `export` ≈1.8 s. Profiling found the boolean union itself is only
+≈0.3 s — `trimesh` already runs a balanced pairwise cascade, `Manifold`'s
+`batch_boolean` is only marginally faster, and grouping shells across threads
+was slower (the Manifold bindings hold the GIL), so the post-union work was the
+lever: the collapsed-vertex nudge, the non-manifold edge census, and repeated
+validation. Those now cost about half of what they did (fuse 4.41 → 2.18 s with
+identical triangles, volume, zero welds, watertight). Sustained CPU load
+throttles the development machine by roughly 4×, so compare before/after runs
+interleaved rather than against an idle-machine baseline.
+
 Per-building geometry itself is fast (about 0.6 s for 400 buildings in a
 profile); the original cache-hit bottleneck was rewriting `job.json` for every
 building, which is now throttled.

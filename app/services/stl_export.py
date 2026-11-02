@@ -78,7 +78,14 @@ def non_manifold_edge_count(mesh: trimesh.Trimesh) -> int:
         edges = np.asarray(mesh.edges_sorted)
         if edges.size == 0:
             return 0
-        _, counts = np.unique(edges, axis=0, return_counts=True)
+        vertex_count = int(edges.max()) + 1
+        if vertex_count < 2_000_000_000:
+            # Pack each sorted edge into one integer key: a 1-D unique is much
+            # faster than unique(axis=0), which sorts a structured array.
+            keys = edges[:, 0].astype(np.int64) * vertex_count + edges[:, 1]
+            _, counts = np.unique(keys, return_counts=True)
+        else:  # pragma: no cover - only for pathological vertex counts
+            _, counts = np.unique(edges, axis=0, return_counts=True)
         return int((counts > 2).sum())
     except Exception:
         return 0
