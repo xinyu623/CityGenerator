@@ -343,8 +343,10 @@ creating a second bottom patch. `TerrainGrid.surface_normal` mirrors
   fits the projected model (not its bounding sphere), and places it on a
   rounded display plinth. When the job has `patches.json`, the viewer loads the
   fused `city.stl`, splits its non-indexed geometry by the patch ranges (one
-  mesh per `ground`/`wall`/`bottom`) and gives each kind its own material, so
-  the CFD boundary groups are visible; the footer legend lists the counts.
+  mesh per `ground`/`wall`/`bottom`); ground and walls share the warm-white
+  building material while the base underside keeps a darker tone, and the
+  footer legend groups the ground/wall counts under one swatch and lists the
+  bottom count.
   A job without a readable `patches.json` falls back to `preview.stl` and one
   warm-white material; when the ranges load but do not cover the mesh the
   viewer keeps `city.stl` in one material and warns in the console. Soft

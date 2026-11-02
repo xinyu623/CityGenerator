@@ -1,19 +1,36 @@
 const COLORS = {
   city: 0xeee4d3,
   buildings: 0xf2ebdc,
-  ground: 0xcbb79d,
+  // Ground and walls are the same warm-white surface: the darker sand tone made
+  // the terrain slab read as a separate object instead of the city's base.
+  ground: 0xf2ebdc,
   wall: 0xf2ebdc,
   bottom: 0xa8967e,
   plate: 0xf8f2e6,
 };
 
-const MATERIALS = {
+export const MATERIALS = {
   city: { color: COLORS.city, roughness: 0.9, metalness: 0.0 },
   buildings: { color: COLORS.buildings, roughness: 0.88, metalness: 0.0 },
-  ground: { color: COLORS.ground, roughness: 0.96, metalness: 0.0 },
+  ground: { color: COLORS.ground, roughness: 0.88, metalness: 0.0 },
   wall: { color: COLORS.wall, roughness: 0.88, metalness: 0.0 },
   bottom: { color: COLORS.bottom, roughness: 0.98, metalness: 0.0 },
 };
+
+export function legendGroups(counts) {
+  // Ground and walls share one material, so they share one swatch and one
+  // legend line; the counts keep both patch groups legible.
+  const surface = [];
+  if (!counts || (!counts.ground && !counts.wall && !counts.bottom)) {
+    return [{ swatch: "building", label: "城市实体" }];
+  }
+  if (counts.ground) surface.push(`地面 ${formatInt(counts.ground)}`);
+  if (counts.wall) surface.push(`建筑 ${formatInt(counts.wall)}`);
+  const groups = [];
+  if (surface.length) groups.push({ swatch: "building", label: surface.join(" · ") });
+  if (counts.bottom) groups.push({ swatch: "bottom", label: `底面 ${formatInt(counts.bottom)}` });
+  return groups;
+}
 
 const PATCH_LABELS = { ground: "地面", wall: "建筑", bottom: "底面" };
 
@@ -471,22 +488,11 @@ function updateLegend(patches) {
   const container = document.getElementById("viewerKinds");
   if (!container) return;
   container.replaceChildren();
-  const counts = patches?.counts;
-  const kinds = counts ? ["ground", "wall", "bottom"].filter((kind) => counts[kind]) : [];
-  if (!kinds.length) {
+  for (const group of legendGroups(patches?.counts)) {
     const item = document.createElement("span");
     const swatch = document.createElement("i");
-    swatch.className = "legend-swatch building";
-    item.append(swatch, document.createTextNode("城市实体"));
-    container.append(item);
-    return;
-  }
-  for (const kind of kinds) {
-    const item = document.createElement("span");
-    const swatch = document.createElement("i");
-    swatch.className = `legend-swatch ${kind}`;
-    const label = PATCH_LABELS[kind] || kind;
-    item.append(swatch, document.createTextNode(`${label} ${formatInt(counts[kind])}`));
+    swatch.className = `legend-swatch ${group.swatch}`;
+    item.append(swatch, document.createTextNode(group.label));
     container.append(item);
   }
 }

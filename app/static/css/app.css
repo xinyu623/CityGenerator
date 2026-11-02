@@ -988,15 +988,9 @@ code {
   display: inline-block;
 }
 
-.legend-swatch.building,
-.legend-swatch.wall {
+.legend-swatch.building {
   background: #f7f3e8;
   border: 1px solid #d8d1bf;
-}
-
-.legend-swatch.ground {
-  background: #d8c9b3;
-  border: 1px solid #c4b49b;
 }
 
 .legend-swatch.bottom {

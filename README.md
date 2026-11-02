@@ -25,9 +25,10 @@ the only external inputs; both are cached on disk.
 The built-in viewer presents the fused city as a warm-white architectural model
 on a display plinth, with soft studio lighting and left-drag orbit, middle-drag
 pan, and wheel zoom. It loads the fused `city.stl` together with
-`patches.json` and colours the surface by patch group — sand for `ground`,
-warm white for `wall` (buildings, roofs, the terrain skirt), and a darker tone
-for the base `bottom` — then lists the counts in the footer legend. A job
+`patches.json` and splits the surface by patch group: `ground` (the terrain) and
+`wall` (buildings, roofs, the terrain skirt) share one warm-white material, the
+base `bottom` is a slightly darker tone, and the footer legend groups the
+ground/wall counts under one swatch and lists the bottom count. A job
 without a readable `patches.json` falls back to an internal display-only preview
 mesh assembled from the clean building shells and the clean base (the terrain
 block when terrain is enabled); that preview is not listed in the job files or
