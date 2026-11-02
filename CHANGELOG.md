@@ -4,6 +4,15 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- A large selection no longer fails when one Overpass chunk keeps timing out:
+  after the endpoint retries are exhausted the cell is retried as four sub-cells,
+  recursively at most `CITYGEN_OVERPASS_SPLIT_MAX_DEPTH` levels (2) and never
+  below `CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2` (0.25 km²). Sub-cells are cached
+  under their own bbox and the merged payload under the parent, so a later run
+  is served from disk. `metadata.json → source.overpass_splits` records each
+  split (bbox, depth, child count, error) and `source.overpass_cell_times` the
+  elapsed time of every cell, including cache hits. A cell that cannot be
+  subdivided still fails the job.
 - Headless CLI: `citygen --bbox s,w,n,e --out DIR` (or `python -m app.cli`)
   runs the whole pipeline without uvicorn and returns a non-zero exit code with
   the error code on failure.

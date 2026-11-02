@@ -269,6 +269,8 @@ CITYGEN_MAX_WORKERS=2
 CITYGEN_OVERPASS_ENDPOINTS=https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter
 CITYGEN_OVERPASS_TIMEOUT_S=180
 CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
+CITYGEN_OVERPASS_SPLIT_MAX_DEPTH=2
+CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2=0.25
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
@@ -290,7 +292,11 @@ CITYGEN_DEM_MAX_RETRIES=3
 主要默认值：
 
 - 最大框选面积：`17 km²`（正好 4 × 4 km 在椭球面上是 16.005 km²），按
-  `overpass_chunk_area_km2 = 4 km²` 分块请求后合并。
+  `overpass_chunk_area_km2 = 4 km²` 分块请求后合并。某个分块重试后仍失败时，
+  会再拆成 4 个子块（最多 `overpass_split_max_depth = 2` 层，且不小于
+  `overpass_split_min_area_km2 = 0.25 km²`），避免单个端点繁忙导致整个任务
+  失败；`metadata.json → source.overpass_splits` 记录本次获取的拆分，
+  `source.overpass_cell_times` 记录每个分块的耗时。
 - 最大建筑数：`20,000`。
 - 默认高度：`25 m`（仅当本区域已知高度太少时使用；否则缺失高度从本地 OSM
   高度分布中随机取值，抖动 `10 %`）；层高：`3 m`。

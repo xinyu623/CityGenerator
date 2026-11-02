@@ -31,6 +31,33 @@ def fake_fetch_factory(raw: dict):
                 "endpoint": "https://overpass.example/api",
                 "fetched_at": "2026-10-29T00:00:00+00:00",
                 "osm_base_timestamp": "2026-10-29T00:00:00Z",
+                "overpass_splits": [
+                    {
+                        "bbox": {
+                            "south": 28.2,
+                            "west": 112.9,
+                            "north": 28.205,
+                            "east": 112.905,
+                        },
+                        "depth": 0,
+                        "children": 4,
+                        "error": "无法从 Overpass 获取数据",
+                        "detail": "Overpass 返回 HTTP 504",
+                    }
+                ],
+                "cell_times": [
+                    {
+                        "bbox": {
+                            "south": 28.2,
+                            "west": 112.9,
+                            "north": 28.21,
+                            "east": 112.91,
+                        },
+                        "depth": 0,
+                        "seconds": 0.25,
+                        "from_cache": False,
+                    }
+                ],
             },
             from_cache=False,
         )
@@ -78,6 +105,9 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch, synthetic_terr
     assert metadata["ground"]["included"] is True
     assert metadata["ground"]["mode"] == "terrain"
     assert metadata["ground"]["surface"] == "test-ramp"
+    assert metadata["source"]["overpass_chunks"] == 1
+    assert metadata["source"]["overpass_splits"][0]["detail"] == "Overpass 返回 HTTP 504"
+    assert metadata["source"]["overpass_cell_times"][0]["seconds"] == 0.25
     assert metadata["attribution"].startswith("© OpenStreetMap")
     assert metadata["buildings"]["each_shell_watertight"] is True
     assert metadata["city"]["watertight"] is True

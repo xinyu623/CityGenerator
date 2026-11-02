@@ -109,9 +109,13 @@ into a grid of cells of at most `sqrt(4) = 2 km` per side
 (`OverpassClient.chunk_bboxes`). Each cell is a normal query and is cached on its
 own; the raw payloads are merged afterwards, dropping elements that appear in
 more than one cell (a way crossing a cell border is returned whole by every cell
-that touches it). A failed cell fails the whole fetch — a silently missing cell
-would drop buildings — and every cell keeps the endpoint retry/backoff policy.
-Successful raw JSON is cached at:
+that touches it). Every cell keeps the endpoint retry/backoff policy. A cell
+that still fails after its retries is retried as four sub-cells, recursively at
+most `overpass_split_max_depth` levels deep (2) and never below
+`overpass_split_min_area_km2` (0.25 km²); each sub-cell is cached under its own
+bbox and the merged payload is cached under the parent cell. A cell that cannot
+be subdivided fails the whole fetch — a silently missing cell would drop
+buildings. Successful raw JSON is cached at:
 
 ```text
 data/cache/osm/<sha256(query_version|bbox)>.json
@@ -120,7 +124,10 @@ data/cache/osm/<sha256(query_version|bbox)>.json
 for both the individual cells and the merged parent bbox. The cache key
 deliberately ignores options such as default height: the raw OSM response is
 independent of modelling parameters. `refresh=true` bypasses the cache and
-re-fetches every cell.
+re-fetches every cell. `metadata.json → source.overpass_splits` lists each split
+of the current run (bbox, depth, child count, error) and
+`source.overpass_cell_times` the elapsed time of every cell the run fetched,
+including cache hits; a top-level cache hit bypasses the cells entirely.
 
 ### 2. Parsing
 

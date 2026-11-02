@@ -29,7 +29,13 @@ A selection bigger than `overpass_chunk_area_km2` (4 km² by default) runs the
 same query once per grid cell of at most 2 km per side; the results are merged
 and duplicate elements (ways crossing a cell border) are dropped. The merged
 extent and geometry are the same as one big query, but no single request is
-large enough to time out on a busy public server.
+large enough to time out on a busy public server. If one cell still fails after
+its endpoint retries, it is retried as four sub-cells instead of failing the
+job: the recursion stops after `overpass_split_max_depth` levels (2) and never
+goes below `overpass_split_min_area_km2` (0.25 km²). Every sub-cell is cached
+under its own bbox, so a later run reads the same data from disk.
+`metadata.json → source.overpass_splits` records where this run had to split
+and `source.overpass_cell_times` how long each cell it fetched took.
 
 Elevations are a second external input: AWS Terrain Tiles (Terrarium), decoded
 from 8-bit RGB PNG as `m = R*256 + G + B/256 - 32768`, resampled onto a local

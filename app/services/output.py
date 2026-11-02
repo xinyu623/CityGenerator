@@ -132,6 +132,8 @@ def _build_metadata(
             "fetched_at": overpass_meta.get("fetched_at", ""),
             "osm_base_timestamp": overpass_meta.get("osm_base_timestamp", ""),
             "overpass_chunks": int(overpass_meta.get("chunks", 1)),
+            "overpass_splits": overpass_meta.get("overpass_splits", []),
+            "overpass_cell_times": overpass_meta.get("cell_times", []),
         },
         "options": request.options.model_dump(),
         "request": request.model_dump(exclude={"request"}),

@@ -282,7 +282,11 @@ resolution and `max_terrain_cells`.
 
 Selections above `overpass_chunk_area_km2` (4 km²) are downloaded as a grid of
 smaller Overpass requests and merged; the overall cap is `max_area_km2`
-(17 km² by default).
+(17 km² by default). A chunk that still fails after its retries is retried as
+four sub-cells (at most `overpass_split_max_depth = 2` levels, never below
+`overpass_split_min_area_km2 = 0.25 km²`), so one busy endpoint does not fail the
+whole job. `metadata.json → source.overpass_splits` records every split and
+`source.overpass_cell_times` the time each cell took during that fetch.
 
 Progress stages: `queued`, `starting`, `validating`, `fetching`, `parsing`,
 `projecting`, `building`, `terrain`, `ground`, `fusing`, `exporting`, `completed`
@@ -305,6 +309,8 @@ CITYGEN_MAX_WORKERS=2
 CITYGEN_OVERPASS_ENDPOINTS=https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter
 CITYGEN_OVERPASS_TIMEOUT_S=180
 CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
+CITYGEN_OVERPASS_SPLIT_MAX_DEPTH=2
+CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2=0.25
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
@@ -327,7 +333,9 @@ Useful defaults:
 
 - Maximum selection area: `17 km²` (an exact 4 × 4 km box is 16.005 km² on the
   ellipsoid), fetched as several Overpass requests of at most
-  `overpass_chunk_area_km2 = 4 km²` each, then merged.
+  `overpass_chunk_area_km2 = 4 km²` each, then merged; a cell that keeps
+  timing out splits into four sub-cells, two levels deep and never below
+  `0.25 km²`.
 - Maximum accepted buildings: `20,000`.
 - Default height: `25 m` for the rare selection that has too few tagged heights;
   otherwise untagged buildings sample the local OSM height distribution

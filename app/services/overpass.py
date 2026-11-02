@@ -40,6 +40,26 @@ _M_PER_DEG_LAT = 110_900.0
 _M_PER_DEG_LON_EQUATOR = 111_320.0
 
 
+def _extent_m(bbox: BBox) -> tuple[float, float]:
+    """Approximate the bbox's local width and height in metres."""
+
+    mid_lat = (bbox.south + bbox.north) / 2.0
+    height_m = (bbox.north - bbox.south) * _M_PER_DEG_LAT
+    width_m = (
+        (bbox.east - bbox.west)
+        * _M_PER_DEG_LON_EQUATOR
+        * max(math.cos(math.radians(mid_lat)), 0.01)
+    )
+    return width_m, height_m
+
+
+def _planar_area_km2(bbox: BBox) -> float:
+    """Area used by the chunking grid, in km² (not the ellipsoid area)."""
+
+    width_m, height_m = _extent_m(bbox)
+    return abs(width_m * height_m) / 1_000_000.0
+
+
 def chunk_bboxes(bbox: BBox, max_chunk_area_km2: float) -> list[BBox]:
     """Split ``bbox`` into a grid of cells no larger than ``max_chunk_area_km2``.
 
@@ -54,13 +74,7 @@ def chunk_bboxes(bbox: BBox, max_chunk_area_km2: float) -> list[BBox]:
         return [bbox]
 
     side_m = math.sqrt(limit) * 1000.0
-    mid_lat = (bbox.south + bbox.north) / 2.0
-    height_m = (bbox.north - bbox.south) * _M_PER_DEG_LAT
-    width_m = (
-        (bbox.east - bbox.west)
-        * _M_PER_DEG_LON_EQUATOR
-        * max(math.cos(math.radians(mid_lat)), 0.01)
-    )
+    width_m, height_m = _extent_m(bbox)
     # A hair over the limit is expected from the metre/degree conversion; do not
     # let that turn a 2x2 split into a wasteful 3x3 one.
     n_lat = max(1, int(math.ceil(height_m / side_m - 1e-3)))
@@ -109,6 +123,16 @@ class OverpassResult:
     raw: dict[str, Any]
     meta: dict[str, Any]
     from_cache: bool
+
+
+@dataclass
+class _CellFetch:
+    """One chunk-sized fetch, whether it came from cache, HTTP, or a split."""
+
+    raw: dict[str, Any]
+    endpoints: list[str]
+    from_cache: bool
+    timestamp: str
 
 
 class OverpassClient:
@@ -280,6 +304,147 @@ class OverpassClient:
         }
         return meta
 
+    def _split_cells(self, bbox: BBox, depth: int) -> list[BBox]:
+        """The child cells to try after ``bbox`` exhausted its retries.
+
+        ``chunk_bboxes`` is reused with a quarter of the parent's area, so a
+        rectangle always becomes four sub-cells. ``depth`` counts splits already
+        applied to the enclosing top-level chunk; the minimum area keeps the
+        recursion from producing cells too small for Overpass to be useful.
+        """
+
+        if depth >= max(0, int(self.settings.overpass_split_max_depth)):
+            return []
+        parent_area = _planar_area_km2(bbox)
+        if parent_area <= 0.0:
+            return []
+        # The planner allows the nominal side length a small slack, so compare
+        # with the same tolerance: a nominal 1 km² cell must still be allowed to
+        # produce its nominal 0.25 km² children.
+        min_area = float(self.settings.overpass_split_min_area_km2)
+        if parent_area / 4.0 < min_area * (1.0 - 1e-3):
+            return []
+        children = chunk_bboxes(bbox, parent_area / 4.0)
+        return children if len(children) > 1 else []
+
+    @staticmethod
+    def _cell_time(
+        bbox: BBox,
+        depth: int,
+        seconds: float,
+        *,
+        from_cache: bool,
+        split: bool = False,
+    ) -> dict[str, Any]:
+        record: dict[str, Any] = {
+            "bbox": bbox.model_dump(),
+            "depth": depth,
+            "seconds": round(seconds, 3),
+            "from_cache": from_cache,
+        }
+        if split:
+            record["split"] = True
+        return record
+
+    def _fetch_cell(
+        self,
+        bbox: BBox,
+        *,
+        depth: int,
+        refresh: bool,
+        splits: list[dict[str, Any]],
+        cell_times: list[dict[str, Any]],
+    ) -> _CellFetch:
+        """Fetch one cell, splitting it into sub-cells if it keeps failing.
+
+        A failed cell is only a whole-job failure once its retries, the depth
+        limit, and the minimum cell area all say it cannot be subdivided.
+        """
+
+        if not refresh:
+            cached = self._load_cache(bbox)
+            if cached is not None:
+                cell_times.append(self._cell_time(bbox, depth, 0.0, from_cache=True))
+                return _CellFetch(
+                    raw=cached.raw,
+                    endpoints=[str(cached.meta.get("endpoint", ""))],
+                    from_cache=True,
+                    timestamp=str(cached.meta.get("osm_base_timestamp", "")),
+                )
+
+        started = time.monotonic()
+        try:
+            raw, endpoint = self._request(bbox)
+        except OverpassError as exc:
+            elapsed = time.monotonic() - started
+            children = self._split_cells(bbox, depth)
+            if not children:
+                cell_times.append(self._cell_time(bbox, depth, elapsed, from_cache=False))
+                raise
+
+            split_start = len(splits)
+            time_start = len(cell_times)
+            splits.append(
+                {
+                    "bbox": bbox.model_dump(),
+                    "depth": depth,
+                    "children": len(children),
+                    "error": str(exc),
+                    "detail": str(exc.detail) if exc.detail else "",
+                }
+            )
+            cell_times.append(
+                self._cell_time(bbox, depth, elapsed, from_cache=False, split=True)
+            )
+            logger.warning(
+                "Overpass cell failed at depth %s; retrying as %s sub-cells: %s",
+                depth,
+                len(children),
+                exc,
+            )
+
+            payloads: list[dict[str, Any]] = []
+            endpoints: list[str] = []
+            timestamps: list[str] = []
+            all_cached = True
+            for child in children:
+                fetched = self._fetch_cell(
+                    child,
+                    depth=depth + 1,
+                    refresh=refresh,
+                    splits=splits,
+                    cell_times=cell_times,
+                )
+                payloads.append(fetched.raw)
+                endpoints.extend(fetched.endpoints)
+                timestamps.append(fetched.timestamp)
+                all_cached = all_cached and fetched.from_cache
+
+            merged = _merge_payloads(payloads)
+            stamped = [value for value in timestamps if value]
+            meta = self._meta(bbox, endpoints[0] if endpoints else "", merged)
+            meta["osm_base_timestamp"] = min(stamped) if stamped else ""
+            meta["overpass_splits"] = splits[split_start:]
+            meta["cell_times"] = cell_times[time_start:]
+            self._save_cache(bbox, merged, meta)
+            return _CellFetch(
+                raw=merged,
+                endpoints=endpoints,
+                from_cache=all_cached,
+                timestamp=meta["osm_base_timestamp"],
+            )
+
+        elapsed = time.monotonic() - started
+        cell_times.append(self._cell_time(bbox, depth, elapsed, from_cache=False))
+        meta = self._meta(bbox, endpoint, raw)
+        self._save_cache(bbox, raw, meta)
+        return _CellFetch(
+            raw=raw,
+            endpoints=[endpoint],
+            from_cache=False,
+            timestamp=meta["osm_base_timestamp"],
+        )
+
     def fetch(
         self,
         bbox: BBox,
@@ -294,52 +459,52 @@ class OverpassClient:
                 return cached
 
         cells = chunk_bboxes(bbox, self.settings.overpass_chunk_area_km2)
-        if len(cells) == 1:
-            raw, endpoint = self._request(bbox)
-            meta = self._meta(bbox, endpoint, raw)
-            self._save_cache(bbox, raw, meta)
-            if progress_cb is not None:
-                progress_cb(1, 1)
-            return OverpassResult(raw=raw, meta=meta, from_cache=False)
-
-        logger.info("Overpass fetch split into %s chunks for %s", len(cells), bbox.as_overpass())
+        if len(cells) > 1:
+            logger.info(
+                "Overpass fetch split into %s chunks for %s", len(cells), bbox.as_overpass()
+            )
+        splits: list[dict[str, Any]] = []
+        cell_times: list[dict[str, Any]] = []
         payloads: list[dict[str, Any]] = []
         timestamps: list[str] = []
         endpoints: list[str] = []
         all_cached = True
         for done, cell in enumerate(cells, start=1):
-            cached = None if refresh else self._load_cache(cell)
-            if cached is not None:
-                payloads.append(cached.raw)
-                timestamps.append(str(cached.meta.get("osm_base_timestamp", "")))
-                endpoints.append(str(cached.meta.get("endpoint", "")))
-                if progress_cb is not None:
-                    progress_cb(done, len(cells))
-                continue
-            all_cached = False
-            raw, endpoint = self._request(cell)
-            meta = self._meta(cell, endpoint, raw)
-            self._save_cache(cell, raw, meta)
-            payloads.append(raw)
-            timestamps.append(meta["osm_base_timestamp"])
-            endpoints.append(endpoint)
+            fetched = self._fetch_cell(
+                cell,
+                depth=0,
+                refresh=refresh,
+                splits=splits,
+                cell_times=cell_times,
+            )
+            payloads.append(fetched.raw)
+            timestamps.append(fetched.timestamp)
+            endpoints.extend(fetched.endpoints)
+            all_cached = all_cached and fetched.from_cache
             if progress_cb is not None:
                 progress_cb(done, len(cells))
 
         merged = _merge_payloads(payloads)
         stamped = [value for value in timestamps if value]
-        meta = self._meta(
-            bbox,
-            endpoints[0] if endpoints else "",
-            merged,
-            chunks=len(cells),
-        )
-        # Mixed chunk ages: report the oldest base timestamp so the provenance
+        if len(cells) == 1:
+            raw = payloads[0]
+            meta = self._meta(bbox, endpoints[0] if endpoints else "", raw)
+        else:
+            raw = merged
+            meta = self._meta(
+                bbox,
+                endpoints[0] if endpoints else "",
+                merged,
+                chunks=len(cells),
+            )
+            meta["chunk_endpoints"] = sorted(set(endpoints))
+        # Mixed cell ages: report the oldest base timestamp so the provenance
         # never claims to be fresher than the stalest cell.
         meta["osm_base_timestamp"] = min(stamped) if stamped else ""
-        meta["chunk_endpoints"] = sorted(set(endpoints))
-        self._save_cache(bbox, merged, meta)
-        return OverpassResult(raw=merged, meta=meta, from_cache=all_cached)
+        meta["overpass_splits"] = splits
+        meta["cell_times"] = cell_times
+        self._save_cache(bbox, raw, meta)
+        return OverpassResult(raw=raw, meta=meta, from_cache=all_cached)
 
 
 class _RetryableStatus(Exception):

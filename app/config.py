@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     overpass_timeout_s: int = 180
     overpass_min_interval_s: float = 1.0
     overpass_max_retries: int = 3
+    # A cell that exhausts its retries is retried as four smaller cells instead
+    # of failing the job. Two levels keep the worst case bounded (16 children)
+    # and 0.25 km² keeps a split request large enough to be worth sending.
+    overpass_split_max_depth: int = 2
+    overpass_split_min_area_km2: float = 0.25
     overpass_user_agent: str = "CityGenerator/0.1 (local research tool)"
 
     # Retention.

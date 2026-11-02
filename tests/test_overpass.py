@@ -247,3 +247,182 @@ def test_one_failed_chunk_fails_the_whole_fetch(tmp_path):
     with pytest.raises(Exception) as excinfo:
         overpass.fetch(BIG_BBOX)
     assert getattr(excinfo.value, "code", "") == "OVERPASS_ERROR"
+
+
+# --- adaptive split on timeout (P2-1) -------------------------------------
+
+
+def request_bbox(request: httpx.Request) -> BBox:
+    """The bbox a MockTransport request actually queried (6-decimal form)."""
+
+    query = unquote_plus(request.content.decode())
+    match = _QUERY_BBOX.search(query)
+    assert match
+    south, west, north, east = (float(value) for value in match.groups())
+    return BBox(south=south, west=west, north=north, east=east)
+
+
+def cell_payload(*ids: int) -> dict:
+    return {
+        "version": 0.6,
+        "osm3s": {"timestamp_osm_base": "2026-11-02T00:00:00Z"},
+        "elements": [{"type": "way", "id": value} for value in ids],
+    }
+
+
+def test_timed_out_chunk_splits_into_four_and_recovers(tmp_path):
+    cells = chunk_bboxes(BIG_BBOX, 4.0)
+    failing = cells[1]
+    children = chunk_bboxes(failing, area_km2(failing) / 4.0)
+    top_ids = {cell.as_overpass(): 10 + index for index, cell in enumerate(cells)}
+    child_ids = {child.as_overpass(): 100 + index for index, child in enumerate(children)}
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        key = request_bbox(request).as_overpass()
+        requests.append(key)
+        if key == failing.as_overpass():
+            return httpx.Response(504, text="gateway timeout")
+        # A shared way proves the merged set is de-duplicated across cells.
+        element_id = top_ids[key] if key in top_ids else child_ids[key]
+        return httpx.Response(200, json=cell_payload(1, element_id))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    overpass = OverpassClient(make_settings(tmp_path), client=client, sleep=lambda _: None)
+    result = overpass.fetch(BIG_BBOX)
+
+    assert result.from_cache is False
+    assert result.meta["chunks"] == 4
+    # The failed chunk exhausted its two retries, then its four children answered.
+    assert requests.count(failing.as_overpass()) == 2
+    assert len(requests) == 3 + 2 + 4
+    # Three surviving chunks plus four sub-cells, with the shared way once.
+    assert {element["id"] for element in result.raw["elements"]} == {
+        1,
+        10,
+        12,
+        13,
+        100,
+        101,
+        102,
+        103,
+    }
+    assert result.meta["osm_base_timestamp"] == "2026-11-02T00:00:00Z"
+
+    splits = result.meta["overpass_splits"]
+    assert len(splits) == 1
+    assert splits[0]["bbox"] == failing.model_dump()
+    assert splits[0]["depth"] == 0
+    assert splits[0]["children"] == 4
+    assert splits[0]["error"]
+    assert splits[0]["detail"] == "Overpass 返回 HTTP 504"
+    times = result.meta["cell_times"]
+    assert len(times) == 4 + 4
+    assert all(entry["seconds"] >= 0.0 for entry in times)
+    split_times = [entry for entry in times if entry.get("split")]
+    assert len(split_times) == 1
+    assert split_times[0]["bbox"] == failing.model_dump()
+    assert split_times[0]["depth"] == 0
+    assert split_times[0]["from_cache"] is False
+
+    # Every sub-cell is cached under its own bbox, as the merged parent is.
+    for child in children:
+        data_path, meta_path = overpass._cache_paths(child)
+        assert data_path.exists() and meta_path.exists()
+
+    # Dropping the merged 4 x 4 km entry must still be served from the cached
+    # cells, including the split chunk's own merged entry.
+    data_path, meta_path = overpass._cache_paths(BIG_BBOX)
+    data_path.unlink()
+    meta_path.unlink()
+    again = overpass.fetch(BIG_BBOX)
+    assert len(requests) == 3 + 2 + 4
+    assert again.from_cache is True
+
+
+def test_split_recurses_two_levels_before_giving_up(tmp_path):
+    parent = BIG_BBOX
+    level_one = chunk_bboxes(parent, area_km2(parent) / 4.0)
+    level_two = [
+        child for cell in level_one for child in chunk_bboxes(cell, area_km2(cell) / 4.0)
+    ]
+    slow = {parent.as_overpass(), *(cell.as_overpass() for cell in level_one)}
+    leaf_ids = {cell.as_overpass(): 200 + index for index, cell in enumerate(level_two)}
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        key = request_bbox(request).as_overpass()
+        requests.append(key)
+        if key in slow:
+            return httpx.Response(504, text="gateway timeout")
+        return httpx.Response(200, json=cell_payload(leaf_ids[key]))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    overpass = OverpassClient(
+        make_settings(
+            tmp_path, overpass_max_retries=1, overpass_chunk_area_km2=17.0
+        ),
+        client=client,
+        sleep=lambda _: None,
+    )
+    result = overpass.fetch(BIG_BBOX)
+
+    # One parent attempt, four children, then sixteen grandchildren.
+    assert len(requests) == 21
+    assert len(result.meta["overpass_splits"]) == 5
+    assert [item["depth"] for item in result.meta["overpass_splits"]] == [0, 1, 1, 1, 1]
+    assert all(item["children"] == 4 for item in result.meta["overpass_splits"])
+    assert len(result.meta["cell_times"]) == 21
+    assert {element["id"] for element in result.raw["elements"]} == {
+        200 + index for index in range(16)
+    }
+    assert result.meta["chunks"] == 1
+
+
+def test_split_stops_at_the_depth_limit(tmp_path):
+    # With the whole 16 km² selection as one chunk, two split levels reach
+    # ~1 km² cells; depth 2 must not split again.
+    areas: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        areas.append(area_km2(request_bbox(request)))
+        return httpx.Response(504, text="gateway timeout")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    overpass = OverpassClient(
+        make_settings(
+            tmp_path, overpass_max_retries=1, overpass_chunk_area_km2=17.0
+        ),
+        client=client,
+        sleep=lambda _: None,
+    )
+    with pytest.raises(Exception) as excinfo:
+        overpass.fetch(BIG_BBOX)
+    assert getattr(excinfo.value, "code", "") == "OVERPASS_ERROR"
+    # Parent, one child, one grandchild: the grandchild is depth 2 and stops.
+    assert len(areas) == 3
+    assert areas[0] == pytest.approx(16.0, rel=0.05)
+    assert areas[1] == pytest.approx(4.0, rel=0.05)
+    assert areas[2] == pytest.approx(1.0, rel=0.05)
+
+
+def test_split_stops_at_the_minimum_cell_area(tmp_path):
+    # BBOX is ~1.1 km²: one split to ~0.28 km² is allowed, the next would be
+    # ~0.07 km² and must not be attempted.
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(504, text="gateway timeout")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    overpass = OverpassClient(
+        make_settings(tmp_path, overpass_max_retries=1),
+        client=client,
+        sleep=lambda _: None,
+    )
+    with pytest.raises(Exception) as excinfo:
+        overpass.fetch(BBOX)
+    assert getattr(excinfo.value, "code", "") == "OVERPASS_ERROR"
+    # The parent, then exactly one child that cannot be split any further.
+    assert calls["count"] == 2
