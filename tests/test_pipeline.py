@@ -146,6 +146,10 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch, synthetic_terr
     patches = json.loads((job_dir / "output" / "patches.json").read_text(encoding="utf-8"))
     assert "patches.json" in metadata["files"]
     assert patches["triangle_count"] == len(city.faces)
+    assert patches["ground_normal_dot_min"] == pytest.approx(0.9)
+    assert metadata["patches"]["ground_normal_dot_min"] == pytest.approx(0.9)
+    assert result.stats["patch_counts"] == patches["counts"]
+    assert result.stats["patch_ranges"] == metadata["patches"]["range_count"]
     assert sum(patches["counts"].values()) == len(city.faces)
     assert metadata["patches"]["counts"] == patches["counts"]
     assert patches["counts"]["ground"] > 0

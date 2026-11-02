@@ -225,7 +225,7 @@
               开启地形时，地面是 DEM 网格拼成的闭合实体；<code>z = 0</code> 为所选范围的最低地形点，
               绝对高程见 <code>metadata.json</code> 的 <code>terrain</code>。
             </li>
-            <li>不再输出独立的建筑或地面 STL；需要分 patch 时请在前处理软件中处理。</li>
+            <li>不再输出独立的建筑或地面 STL；<code>patches.json</code> 按 STL 顺序给出地面、墙面、底面的连续三角形区间，网页预览按 patch 上色。</li>
             <li>坐标：+X 东、+Y 北、Z 向上；原点记录在 <code>metadata.json</code>。</li>
           </ul>
         </section>
@@ -255,7 +255,9 @@
         </div>
         <div class="modal-foot">
           <div class="viewer-legend">
-            <span><i class="legend-swatch building"></i>城市实体</span>
+            <span id="viewerKinds" class="legend-kinds">
+              <span><i class="legend-swatch building"></i>城市实体</span>
+            </span>
             <span id="viewerScale" class="viewer-scale">—</span>
           </div>
           <div class="viewer-actions">

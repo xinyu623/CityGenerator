@@ -988,7 +988,8 @@ code {
   display: inline-block;
 }
 
-.legend-swatch.building {
+.legend-swatch.building,
+.legend-swatch.wall {
   background: #f7f3e8;
   border: 1px solid #d8d1bf;
 }
@@ -996,6 +997,25 @@ code {
 .legend-swatch.ground {
   background: #d8c9b3;
   border: 1px solid #c4b49b;
+}
+
+.legend-swatch.bottom {
+  background: #b9a488;
+  border: 1px solid #a08c72;
+}
+
+.legend-kinds {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.legend-kinds > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .viewer-scale {

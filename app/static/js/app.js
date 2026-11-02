@@ -272,6 +272,7 @@ function addStat(label, value) {
 function renderResult(job) {
   const stats = job.stats || {};
   const sources = stats.height_sources || {};
+  const patches = stats.patch_counts || {};
   clearResult();
   $("resultPanel").hidden = false;
   $("downloadBtn").href = job.download_url || "#";
@@ -283,6 +284,10 @@ function renderResult(job) {
   addStat(
     "地形起伏",
     stats.terrain_enabled ? `${Number(stats.terrain_relief_m || 0).toFixed(1)} m` : "关闭"
+  );
+  addStat(
+    "地面 / 墙面",
+    `${formatInt(patches.ground ?? 0)} / ${formatInt(patches.wall ?? 0)}`
   );
   addStat("高度来源", `${formatInt(sources.tag)} / ${formatInt(sources.levels)} / ${formatInt(sources.default)}`);
   addStat("跳过", formatInt(stats.skipped));
@@ -384,19 +389,36 @@ async function cancel() {
   }
 }
 
-function preview() {
+async function preview() {
   if (!state.job || state.job.status !== "completed") return;
-  const cityFile = (state.job.files || []).find((file) => file.name === "city.stl");
+  const files = state.job.files || [];
+  const cityFile = files.find((file) => file.name === "city.stl");
   if (!cityFile) {
     showError("当前结果没有可预览的 city.stl 文件。");
     return;
+  }
+  const patchesFile = files.find((file) => file.name === "patches.json");
+  let patches = null;
+  if (patchesFile) {
+    try {
+      const response = await fetch(patchesFile.url);
+      if (response.ok) patches = await response.json();
+    } catch (error) {
+      console.warn("读取 patches.json 失败，预览退回单色模型", error);
+    }
   }
   const stats = state.job.stats || {};
   const terrain = stats.terrain_enabled
     ? ` · 地形起伏 ${Number(stats.terrain_relief_m || 0).toFixed(1)} m`
     : "";
   openViewer({
-    urls: [{ url: `/api/jobs/${state.job.id}/preview.stl`, kind: "city" }],
+    urls: [
+      {
+        url: patches ? cityFile.url : `/api/jobs/${state.job.id}/preview.stl`,
+        kind: "city",
+      },
+    ],
+    patches,
     title: "CityGenerator · 城市实体预览",
     meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形${terrain}`,
   });

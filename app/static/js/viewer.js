@@ -2,6 +2,8 @@ const COLORS = {
   city: 0xeee4d3,
   buildings: 0xf2ebdc,
   ground: 0xcbb79d,
+  wall: 0xf2ebdc,
+  bottom: 0xa8967e,
   plate: 0xf8f2e6,
 };
 
@@ -9,7 +11,11 @@ const MATERIALS = {
   city: { color: COLORS.city, roughness: 0.9, metalness: 0.0 },
   buildings: { color: COLORS.buildings, roughness: 0.88, metalness: 0.0 },
   ground: { color: COLORS.ground, roughness: 0.96, metalness: 0.0 },
+  wall: { color: COLORS.wall, roughness: 0.88, metalness: 0.0 },
+  bottom: { color: COLORS.bottom, roughness: 0.98, metalness: 0.0 },
 };
+
+const PATCH_LABELS = { ground: "地面", wall: "建筑", bottom: "底面" };
 
 let runtime = null;
 let loadToken = 0;
@@ -408,7 +414,84 @@ function applyWireframe(state) {
   });
 }
 
-async function loadModels(urls, state) {
+function splitByPatches(state, geometry, patches) {
+  const ranges = patches?.ranges;
+  if (!Array.isArray(ranges) || !ranges.length) return null;
+  const { THREE } = state;
+  const source = geometry.index ? geometry.toNonIndexed() : geometry;
+  const position = source.getAttribute("position");
+  const normal = source.getAttribute("normal");
+  if (!position) {
+    if (source !== geometry) source.dispose();
+    return null;
+  }
+  const triangles = Math.floor(position.count / 3);
+  const covered = ranges.reduce((sum, range) => sum + (range.count || 0), 0);
+  if (covered !== triangles) {
+    console.warn(
+      `patches.json 覆盖 ${covered} 个三角形，模型有 ${triangles} 个，使用单色预览`
+    );
+    if (source !== geometry) source.dispose();
+    return null;
+  }
+
+  const positionArray = position.array;
+  const normalArray = normal ? normal.array : null;
+  const spans = new Map();
+  for (const range of ranges) {
+    const kind = PATCH_LABELS[range.kind] ? range.kind : "wall";
+    if (!spans.has(kind)) spans.set(kind, []);
+    spans.get(kind).push([range.start, range.count]);
+  }
+
+  const parts = [];
+  for (const [kind, kindSpans] of spans) {
+    const vertexCount = kindSpans.reduce((sum, [, count]) => sum + count, 0) * 3;
+    const positions = new Float32Array(vertexCount * 3);
+    const normals = normalArray ? new Float32Array(vertexCount * 3) : null;
+    let offset = 0;
+    for (const [start, count] of kindSpans) {
+      const from = start * 9;
+      const to = (start + count) * 9;
+      positions.set(positionArray.subarray(from, to), offset);
+      if (normals) normals.set(normalArray.subarray(from, to), offset);
+      offset += to - from;
+    }
+    const part = new THREE.BufferGeometry();
+    part.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    if (normals) part.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    parts.push({ geometry: part, kind });
+  }
+  if (source !== geometry) source.dispose();
+  geometry.dispose();
+  return parts;
+}
+
+function updateLegend(patches) {
+  const container = document.getElementById("viewerKinds");
+  if (!container) return;
+  container.replaceChildren();
+  const counts = patches?.counts;
+  if (!counts) {
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.className = "legend-swatch building";
+    item.append(swatch, document.createTextNode("城市实体"));
+    container.append(item);
+    return;
+  }
+  for (const kind of ["ground", "wall", "bottom"]) {
+    if (!counts[kind]) continue;
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.className = `legend-swatch ${kind}`;
+    const label = PATCH_LABELS[kind] || kind;
+    item.append(swatch, document.createTextNode(`${label} ${formatInt(counts[kind])}`));
+    container.append(item);
+  }
+}
+
+async function loadModels(urls, state, patches = null) {
   const token = ++loadToken;
   const status = document.getElementById("viewerStatus");
   const meta = document.getElementById("viewerMeta");
@@ -430,6 +513,18 @@ async function loadModels(urls, state) {
         return;
       }
       geometry.rotateX(-Math.PI / 2);
+      const pieces =
+        patches && item.kind === "city" ? splitByPatches(state, geometry, patches) : null;
+      if (pieces) {
+        for (const piece of pieces) {
+          piece.geometry.computeBoundingBox();
+          if (!piece.geometry.boundingBox) throw new Error("STL 缺少包围盒");
+          combined.union(piece.geometry.boundingBox);
+          loaded.push(piece);
+          triangles += piece.geometry.attributes.position.count / 3;
+        }
+        continue;
+      }
       geometry.computeBoundingBox();
       if (!geometry.boundingBox) throw new Error("STL 缺少包围盒");
       combined.union(geometry.boundingBox);
@@ -486,11 +581,12 @@ async function loadModels(urls, state) {
   }
 }
 
-export async function openViewer({ urls, title = "3D 预览", meta = "" }) {
+export async function openViewer({ urls, patches = null, title = "3D 预览", meta = "" }) {
   const modal = document.getElementById("viewerModal");
   const status = document.getElementById("viewerStatus");
   document.getElementById("viewerTitle").textContent = title;
   document.getElementById("viewerMeta").textContent = meta;
+  updateLegend(patches);
   modal.hidden = false;
   status.hidden = false;
   status.textContent = "初始化查看器…";
@@ -501,7 +597,7 @@ export async function openViewer({ urls, title = "3D 预览", meta = "" }) {
     }
     runtime.visible = true;
     runtime.resize();
-    await loadModels(urls, runtime);
+    await loadModels(urls, runtime, patches);
   } catch (error) {
     console.error(error);
     status.hidden = false;

@@ -335,6 +335,8 @@ def run_pipeline(
         "skipped": build_result.skipped,
         "overlaps": overlap_count,
         "area_km2": round(area, 4),
+        "patch_counts": dict(bundle.metadata.get("patches", {}).get("counts", {})),
+        "patch_ranges": int(bundle.metadata.get("patches", {}).get("range_count", 0)),
         "from_cache": fetched.from_cache,
         "osm_base_timestamp": fetched.meta.get("osm_base_timestamp", ""),
         "terrain_enabled": terrain is not None,
