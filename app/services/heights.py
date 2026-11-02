@@ -16,6 +16,60 @@ _FEET_MARKERS = ("ft", "feet", "foot", "'")
 AREA_RATIO_MIN = 0.25
 AREA_RATIO_MAX = 4.0
 
+# OSM tags are sparse on low-rise civic and industrial buildings, so a draw from
+# the tagged pool can hand a station or a school the height of a nearby tower.
+# These ceilings keep sampled heights plausible for types where a skyscraper
+# makes no sense; tagged heights are still trusted as-is.
+SAMPLED_HEIGHT_CAPS_M: dict[str, float] = {
+    "train_station": 60.0,
+    "transportation": 30.0,
+    "station": 60.0,
+    "subway_entrance": 8.0,
+    "school": 35.0,
+    "university": 60.0,
+    "college": 60.0,
+    "kindergarten": 12.0,
+    "hospital": 60.0,
+    "clinic": 25.0,
+    "museum": 45.0,
+    "theatre": 40.0,
+    "cinema": 25.0,
+    "stadium": 60.0,
+    "sports_hall": 45.0,
+    "government": 60.0,
+    "public": 45.0,
+    "civic": 45.0,
+    "retail": 30.0,
+    "supermarket": 25.0,
+    "mall": 60.0,
+    "marketplace": 20.0,
+    "industrial": 25.0,
+    "factory": 25.0,
+    "warehouse": 25.0,
+    "hangar": 25.0,
+    "garage": 15.0,
+    "garages": 15.0,
+    "parking": 15.0,
+    "shed": 10.0,
+    "roof": 8.0,
+    "service": 15.0,
+    "kiosk": 5.0,
+    "house": 15.0,
+    "detached": 15.0,
+    "hut": 8.0,
+    "cabin": 8.0,
+    "farm": 15.0,
+    "barn": 15.0,
+}
+
+
+def sampled_height_cap(building_type: str | None) -> float | None:
+    """A plausible ceiling for a sampled height, from the OSM ``building`` tag."""
+
+    if not building_type:
+        return None
+    return SAMPLED_HEIGHT_CAPS_M.get(str(building_type).strip().lower())
+
 
 def _number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):

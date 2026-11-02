@@ -8,6 +8,7 @@ from shapely.geometry import Polygon
 from app.services.buildings import (
     PreparedBuilding,
     PreparedBuildings,
+    _known_height_pairs,
     clean_polygons,
     detect_overlaps,
     extrude_building,
@@ -305,7 +306,6 @@ def test_missing_heights_fall_back_to_the_default_without_enough_samples():
         _feature(2, {"building": "yes"}, 0.002),
         _feature(3, {"building": "yes"}, 0.004),
     ]
-
     prepared = prepare_buildings(
         features,
         projector,
@@ -316,3 +316,55 @@ def test_missing_heights_fall_back_to_the_default_without_enough_samples():
     assert all(item.height_source == "default" for item in prepared.items if item.osm_id > 1)
     assert all(item.height_m == pytest.approx(25.0) for item in prepared.items if item.osm_id > 1)
     assert prepared.height_sampling["enabled"] is False
+
+
+def test_clamped_heights_are_not_sampling_observations():
+    # height=900 becomes 300 with clamped=True: a censored OSM value, not an
+    # observation to copy onto untagged buildings.
+    features = [
+        _feature(1, {"building": "yes", "height": "900"}, 0.000),
+        _feature(2, {"building": "yes", "height": "12"}, 0.002),
+    ]
+
+    pairs = _known_height_pairs(features, 25.0, 3.0)
+
+    assert [height for height, _ in pairs] == [pytest.approx(12.0)]
+
+
+def test_sampled_heights_respect_low_rise_type_caps():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "tower", "height": "300"}, 0.000, size=0.0004),
+        _feature(2, {"building": "train_station"}, 0.004, size=0.006),
+    ]
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=1,
+        height_seed=1,
+    )
+
+    station = next(item for item in prepared.items if item.osm_id == 2)
+    assert station.height_source == "sampled"
+    assert station.height_m <= 60.0
+    assert prepared.height_sampling["type_capped"] == 1
+
+
+def test_tagged_low_rise_height_is_not_capped():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "train_station", "height": "100"}, 0.000, size=0.006),
+        _feature(2, {"building": "yes", "height": "12"}, 0.004, size=0.0004),
+    ]
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=1,
+        height_seed=3,
+    )
+
+    station = next(item for item in prepared.items if item.osm_id == 1)
+    assert station.height_source == "tag"
+    assert station.height_m == pytest.approx(100.0)

@@ -28,6 +28,7 @@ from app.services.heights import (
     HeightInfo,
     HeightSampler,
     resolve_height,
+    sampled_height_cap,
 )
 from app.services.issues import Issue
 from app.services.projection import Projector
@@ -346,7 +347,10 @@ def _known_height_pairs(
             default_height_m=default_height_m,
             level_height_m=level_height_m,
         )
-        if info.source != "default":
+        # A clamped height was censored by the accepted range (e.g. height=350
+        # becomes 300): it is not an observation worth copying onto other
+        # buildings.
+        if info.source != "default" and not info.clamped:
             pairs.append((info.height_m, _footprint_area_m2(feature.geometry)))
     return pairs
 
@@ -398,6 +402,7 @@ def prepare_buildings(
                 "reason": "too_few_known_heights",
             }
 
+    type_capped = 0
     for index, feature in enumerate(features):
         if cancel_event is not None and cancel_event.is_set():
             raise BuildCancelled("job cancelled")
@@ -426,8 +431,13 @@ def prepare_buildings(
         )
         if sampler is not None and height.source == "default":
             footprint_area_m2 = math.fsum(polygon.area for polygon in polygons)
+            sampled = sampler.draw(footprint_area_m2)
+            cap = sampled_height_cap(feature.tags.get("building"))
+            if cap is not None and sampled > cap:
+                sampled = cap
+                type_capped += 1
             height = HeightInfo(
-                height_m=sampler.draw(footprint_area_m2),
+                height_m=sampled,
                 base_m=height.base_m,
                 source="sampled",
                 clamped=height.clamped,
@@ -474,6 +484,8 @@ def prepare_buildings(
             message = f"{missing} 栋建筑缺少高度标签，已使用默认高度 {default_height_m:g} m"
         result.warnings.append(Issue(code="MISSING_HEIGHT", message=message, count=missing))
     result.height_sampling["sampled"] = result.height_sources.get("sampled", 0)
+    if sampler is not None:
+        result.height_sampling["type_capped"] = type_capped
     if counts["HEIGHT_CLAMPED"]:
         result.warnings.append(
             Issue(

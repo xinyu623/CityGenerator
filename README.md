@@ -242,8 +242,9 @@ Useful `metadata.json → terrain` fields:
 5. Check `MISSING_HEIGHT`, `HEIGHT_CLAMPED`, and `STEEP_FOOTPRINT` warnings.
    Buildings without a height tag draw from the selection's own OSM height
    distribution, preferring heights from similarly sized footprints
-   (0.25–4× the area; `buildings.height_sampling`), so the skyline is locally
-   plausible but still estimated, not surveyed.
+   (0.25–4× the area; `buildings.height_sampling`), with a sampled ceiling for
+   low-rise/civic/industrial types, so the skyline is locally plausible but
+   still estimated, not surveyed.
 6. Review `city.weld_repairs` if you need to know whether touching footprints
    required local contact repairs. A healthy run needs `0`.
 7. If your mesh generator struggles with the terrain block, re-run with terrain

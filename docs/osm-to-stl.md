@@ -98,9 +98,13 @@ For each footprint, height is resolved in this order:
    observations with ±`height_sampling_jitter` (10 % by default) jitter and a
    deterministic seed. Observations from buildings whose footprint area is
    within 0.25–4× the target footprint are preferred; when none match, the
-   whole pool is used. `metadata.json → buildings.height_sampling` records the
-   pool size, `area_weighted`, `area_ratio`, and how many buildings were
-   sampled.
+   whole pool is used. Heights that the 2–300 m range had to clamp (for example
+   an OSM `height=350`) are not observations and are skipped. Low-rise, civic,
+   and industrial `building` types get a sampled ceiling (train station 60 m,
+   school 35 m, museum 45 m, retail 30 m, warehouse 25 m, house 15 m, …), because
+   the tagged pool over-represents towers. `metadata.json →
+   buildings.height_sampling` records the pool size, `area_weighted`,
+   `area_ratio`, `type_capped`, and how many buildings were sampled.
 4. **Default.** `default_height_m` (25 m) when too few tagged heights exist.
 
 `min_height` raises the base of the prism. If a height is outside the accepted

@@ -2,6 +2,19 @@
 
 All notable changes to CityGenerator are recorded here.
 
+## [Unreleased]
+
+- Height sampling no longer copies censored or implausible observations.
+  Heights clamped by the 2–300 m range (e.g. an OSM `height=350`) are excluded
+  from the sampling pool, and low-rise/civic/industrial `building` types get a
+  sampled ceiling (train station 60 m, school 35 m, museum 45 m, retail 30 m,
+  warehouse 25 m, house 15 m, …), because OSM height tags over-represent towers.
+  `metadata.json → buildings.height_sampling.type_capped` records how many
+  samples hit a ceiling. On the 4×4 km sample: 15 buildings capped, sampled
+  heights ≥250 m fall from 42 to 21 and ≥100 m from 94 to 73; the train station
+  drops from 297 m to 60 m, the school from 245 m to 35 m, and a
+  `building=house` sample from 289 m to 15 m.
+
 ## [2.1.0] - 2026-11-02
 
 - CI: GitHub Actions runs `ruff check app tests` and the offline `pytest` suite
