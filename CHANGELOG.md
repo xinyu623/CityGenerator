@@ -2,6 +2,13 @@
 
 All notable changes to CityGenerator are recorded here.
 
+## [Unreleased]
+
+- Removed the GitHub Actions workflow. The project is developed and used on a
+  single Windows machine, so hosted CI covered no second environment and only
+  added maintenance; `pytest`, `ruff`, and the 300 m golden test remain as local
+  checks (the golden file keeps its producer-version record).
+
 ## [2.2.0] - 2026-11-02
 
 - Sampled heights now clear a building's own tagged base. When the draw lands

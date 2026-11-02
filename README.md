@@ -404,9 +404,9 @@ written to binary STL and loaded again. Terrain tests cover plane/diagonal
 sampling, conservative footprint minima, closed terrain solids, watertight
 building-on-slope unions, and Terrarium tile decoding/mosaicking.
 
-CI runs `ruff check app tests` and the offline `pytest` suite on every push and
-pull request (`.github/workflows/ci.yml`) on both Ubuntu and Windows, each job
-with a timeout. `tests/test_golden.py` builds a fixed
+There is no hosted CI: the project is developed and used on one Windows machine,
+so `ruff check app tests` and the offline `pytest` suite are run locally before
+a commit. `tests/test_golden.py` builds a fixed
 300 m 25-building block on a synthetic terrain ramp and compares triangle count,
 volume, surface area, bounds, weld repairs, watertightness, non-manifold edges,
 and the maximum terrain border step against `tests/golden/city_300m.json`, so a
