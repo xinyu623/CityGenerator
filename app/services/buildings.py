@@ -795,7 +795,62 @@ def prepare_buildings(
                 count=counts["HEIGHT_CLAMPED"],
             )
         )
+    floating = _ground_unsupported_bases(result)
+    if floating:
+        result.warnings.append(
+            Issue(
+                code="FLOATING_BASE",
+                message=(
+                    f"{floating} 栋建筑的 min_height 下方没有能接住它的楼体，已落到地面"
+                    "（否则会在实体里留下一个悬空壳体）"
+                ),
+                count=floating,
+            )
+        )
     return result
+
+
+def _ground_unsupported_bases(result: PreparedBuildings) -> int:
+    """Lower the base of every elevated building that nothing holds up.
+
+    A ``min_height`` building is extruded from its base upwards, which assumes
+    another volume fills the space below — usually the podium mapped as its own
+    building. When that volume is missing (or is itself elevated and unsupported)
+    the shell floats, the fused city is no longer one solid, and a CFD solver
+    sees a detached box. Those buildings are dropped to the ground instead.
+    """
+
+    items = result.items
+    elevated = [index for index, item in enumerate(items) if item.base_m > 0.0]
+    if not elevated:
+        return 0
+
+    tree = STRtree([item.polygon_local for item in items])
+    supported = {index for index, item in enumerate(items) if item.base_m <= 0.0}
+    pending = [index for index in elevated if index not in supported]
+    while pending:
+        progressed = False
+        still: list[int] = []
+        for index in pending:
+            item = items[index]
+            candidates = tree.query(item.polygon_local, predicate="intersects")
+            if any(
+                int(other) in supported and items[int(other)].height_m >= item.base_m
+                for other in candidates
+                if int(other) != index
+            ):
+                supported.add(index)
+                progressed = True
+            else:
+                still.append(index)
+        pending = still if progressed else []
+        if not progressed:
+            break
+
+    floating = [index for index in elevated if index not in supported]
+    for index in floating:
+        items[index].base_m = 0.0
+    return len(floating)
 
 
 def _contact_indices(polygons: Sequence[Polygon], tolerance: float) -> set[int]:

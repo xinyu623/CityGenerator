@@ -9,6 +9,21 @@ All notable changes to CityGenerator are recorded here.
   added maintenance; `pytest`, `ruff`, and the 300 m golden test remain as local
   checks (the golden file keeps its producer-version record).
 
+## [2.3.1] - 2026-11-02
+
+- Fixed a floating building shell. A `min_height` building is extruded from its
+  base upwards, which assumes the podium below is mapped as its own volume; when
+  it is not, the shell hangs in the air and the fused "single" city is really two
+  solids. The Chongqing selection had one such 36×40 m box at z = 130–156 m, so
+  `city.stl` held two disconnected components and a CFD mesher would have seen a
+  detached obstacle. `prepare_buildings` now walks the footprints and lowers the
+  base of any elevated building that nothing reaches, emitting `FLOATING_BASE`
+  with the count; a building whose roof reaches an elevated base still counts as
+  support, and the walk is transitive, so a podium under a podium is kept.
+- The six-city audit (`scratch/audit_six.py`) now checks the fused city is a
+  single connected solid, that patch ranges tile every triangle, and that no
+  triangle is degenerate or duplicated. All six pass.
+
 ## [2.3.0] - 2026-11-02
 
 - New `terrain.edge_taper_m` option (`--terrain-edge-taper`, 0–1000 m, default

@@ -402,6 +402,31 @@ def test_height_overrides_beat_sampling():
     assert capped_heights[3] == pytest.approx(300.0)
 
 
+def test_elevated_base_without_support_drops_to_the_ground():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [_feature(1, {"building": "yes", "height": "40", "min_height": "18"}, 0.000)]
+
+    prepared = prepare_buildings(features, projector, sample_missing_heights=False)
+
+    assert prepared.items[0].base_m == pytest.approx(0.0)
+    assert any(warning.code == "FLOATING_BASE" for warning in prepared.warnings)
+
+
+def test_elevated_base_survives_a_podium_that_reaches_it():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "20"}, 0.000),
+        _feature(2, {"building": "yes", "height": "40", "min_height": "18"}, 0.0002),
+    ]
+
+    prepared = prepare_buildings(features, projector, sample_missing_heights=False)
+
+    by_id = {item.osm_id: item for item in prepared.items}
+    assert by_id[1].base_m == pytest.approx(0.0)
+    assert by_id[2].base_m == pytest.approx(18.0)
+    assert not any(warning.code == "FLOATING_BASE" for warning in prepared.warnings)
+
+
 def test_missing_heights_are_sampled_from_the_area_distribution():
     projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
     features = [
@@ -625,11 +650,14 @@ def test_tagged_low_rise_height_is_not_capped():
 def test_sampled_heights_clear_a_min_height_base():
     # building:min_level=6 puts the lowest part at 18 m; a draw from the pool's
     # 3 m mode cannot make the total height shorter than the base, and one
-    # storey above the base is the minimum sensible shell.
+    # storey above the base is the minimum sensible shell. Building 3 is the
+    # podium that reaches the base -- without it the elevated shell would float
+    # and `_ground_unsupported_bases` would drop it to the ground.
     projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
     features = [
         _feature(1, {"building": "yes", "height": "3"}, 0.000),
         _feature(2, {"building": "apartments", "building:min_level": "6"}, 0.004),
+        _feature(3, {"building": "yes", "height": "18"}, 0.0042),
     ]
 
     prepared = prepare_buildings(features, projector, min_height_samples=1, height_seed=5)
@@ -642,7 +670,7 @@ def test_sampled_heights_clear_a_min_height_base():
     assert prepared.height_sampling["rules"] == {"base_floor": 1}
 
     built = extrude_prepared(prepared)
-    assert [record.osm_id for record in built.records] == [1, 2]
+    assert [record.osm_id for record in built.records] == [1, 2, 3]
     assert not any(issue.code == "TRIANGULATION_FAILED" for issue in built.warnings)
 
 
