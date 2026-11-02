@@ -97,8 +97,9 @@ For each footprint, height is resolved in this order:
    selection carry a height or level tag, an untagged building draws from those
    observations with ±`height_sampling_jitter` (10 % by default) jitter and a
    deterministic seed. The pool is conditioned on the target: only observations
-   whose footprint area is within 0.5–2× the target's are considered (the
-   nearest observations take over when that band is empty), and each candidate
+   whose footprint area is within 0.5–2× the target's are considered (the draw
+   falls back to the weighted pool of every observation with a known area when
+   that band holds none), and each candidate
    is weighted by `exp(-0.5 × (ln(area / target_area) / 0.5)²)`, times 2 when
    the `building` type matches and 1.5 when only the type group matches
    (residential / commercial / civic / industrial / other). OSM height tags
@@ -111,8 +112,11 @@ For each footprint, height is resolved in this order:
    building records the rule that produced its height (`similarity`, `type_cap`,
    or `conservative_cap`) as `height_rule` in `buildings.geojson`.
    `metadata.json → buildings.height_sampling` records the pool size, the
-   weights, the rule counts, and how many sampled buildings and pool
-   observations are above 100 m and 250 m, by type group.
+   weights, the rule counts (`sampled`, `sampled_buildings`, `rules`), the
+   band-fallback draws, and how many sampled buildings and pool observations are
+   above 100 m and 250 m, by type group. `sampled` counts prepared polygon parts
+   (a multi-polygon building once per part), `sampled_buildings` counts distinct
+   OSM buildings, and the tail counts are per building.
 
    **Conservative mode.** `--conservative-heights`
    (`CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=true`) also caps every sampled height
@@ -124,8 +128,10 @@ For each footprint, height is resolved in this order:
 To check a finished job, run
 `python -m app.services.height_report --output <job dir> [--check]`: it prints
 the sampled tail against the tagged pool, the rule counts, and the most slender
-samples, and `--check` fails when the sampled `>=250 m` share exceeds the pool's
-or a sampled height exceeds its type ceiling.
+samples, and `--check` fails when the sampled `>=250 m` share exceeds the pool's,
+a sampled height exceeds its type ceiling, or a conservative run exceeds
+`k × sqrt(area)`. A job from a version before this one has no pool tail in its
+metadata, so the report skips the share check and says so.
 
 `min_height` raises the base of the prism. If a height is outside the accepted
 range it is clamped and a `HEIGHT_CLAMPED` warning is emitted. A missing height

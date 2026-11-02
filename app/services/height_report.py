@@ -33,6 +33,12 @@ def _share(part: int, total: int) -> float:
     return part / total if total else 0.0
 
 
+def _shown(value: Any) -> Any:
+    """Render a metadata value that older jobs do not have."""
+
+    return "?" if value is None else value
+
+
 def _percentile(values: list[float], quantile: float) -> float:
     if not values:
         return 0.0
@@ -149,6 +155,7 @@ def summarize(
     known = int(sampling.get("known") or 0)
     pool_above_100 = int(sampling.get("pool_above_100m") or 0)
     pool_above_250 = int(sampling.get("pool_above_250m") or 0)
+    pool_recorded = "pool_above_100m" in sampling and "pool_above_250m" in sampling
     return {
         "sampled": {
             "count": len(sampled),
@@ -166,6 +173,14 @@ def summarize(
             "above_100m_share": _share(pool_above_100, known),
             "above_250m": pool_above_250,
             "above_250m_share": _share(pool_above_250, known),
+            "recorded": pool_recorded,
+        },
+        "metadata": {
+            "sampled": int(sampling.get("sampled") or 0),
+            "sampled_buildings": sampling.get("sampled_buildings"),
+            "sampled_above_100m": sampling.get("sampled_above_100m"),
+            "sampled_above_250m": sampling.get("sampled_above_250m"),
+            "band_fallback_draws": sampling.get("band_fallback_draws"),
         },
         "rules": dict(sorted(rules.items())),
         "caps": {
@@ -194,7 +209,11 @@ def check(summary: dict[str, Any]) -> list[str]:
     violations: list[str] = []
     sampled = summary["sampled"]
     pool = summary["pool"]
-    if sampled["count"] and sampled["above_250m_share"] > pool["above_250m_share"] + 1e-9:
+    if (
+        pool["recorded"]
+        and sampled["count"]
+        and sampled["above_250m_share"] > pool["above_250m_share"] + 1e-9
+    ):
         violations.append(
             "sampled heights >=250 m: "
             f"{sampled['above_250m']} of {sampled['count']} ({sampled['above_250m_share']:.1%}) "
@@ -235,6 +254,17 @@ def format_report(summary: dict[str, Any]) -> str:
         f"  >=250 m           {sampled['above_250m']:>4} ({sampled['above_250m_share']:5.1%})"
         f"          {pool['above_250m']:>4} ({pool['above_250m_share']:5.1%})",
     ]
+    if not pool["recorded"]:
+        lines.append("pool tail           not recorded (pre-v3 job): share check skipped")
+    metadata = summary.get("metadata") or {}
+    if metadata.get("sampled"):
+        lines.append(
+            f"metadata            {metadata['sampled']} parts / "
+            f"{_shown(metadata.get('sampled_buildings'))} buildings sampled; tail "
+            f">=100 m {_shown(metadata.get('sampled_above_100m'))}, "
+            f">=250 m {_shown(metadata.get('sampled_above_250m'))}, "
+            f"band fallbacks {_shown(metadata.get('band_fallback_draws'))}"
+        )
     if summary["rules"]:
         rules = ", ".join(f"{name} {count}" for name, count in summary["rules"].items())
         lines.append(f"rules               {rules}")

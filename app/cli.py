@@ -54,10 +54,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-area", type=float, default=4.0, help="minimum footprint area, m2")
     parser.add_argument("--terrain-resolution", type=float, default=30.0, help="DEM grid spacing, m")
     parser.add_argument("--no-terrain", action="store_true", help="use a flat 1 m slab instead of the DEM")
-    parser.add_argument(
+    conservative = parser.add_mutually_exclusive_group()
+    conservative.add_argument(
         "--conservative-heights",
         action="store_true",
         help="cap sampled heights at k * sqrt(footprint area) for a calmer skyline",
+    )
+    conservative.add_argument(
+        "--no-conservative-heights",
+        action="store_true",
+        help="disable an env-enabled conservative mode",
     )
     parser.add_argument(
         "--slenderness-k",
@@ -110,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["data_dir"] = args.data_dir
     if args.conservative_heights:
         overrides["height_sampling_conservative"] = True
+    elif args.no_conservative_heights:
+        overrides["height_sampling_conservative"] = False
     if args.slenderness_k is not None:
         overrides["height_sampling_slenderness_k"] = args.slenderness_k
     settings = Settings(**overrides)  # type: ignore[arg-type]

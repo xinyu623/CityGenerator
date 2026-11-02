@@ -10,6 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -82,7 +83,7 @@ class Settings(BaseSettings):
     # Off by default; k = 8 keeps ordinary buildings and trims only the
     # implausibly slender tail.
     height_sampling_conservative: bool = False
-    height_sampling_slenderness_k: float = 8.0
+    height_sampling_slenderness_k: float = Field(default=8.0, allow_inf_nan=False)
 
     # Terrain / DEM elevation source.
     terrain_enabled_default: bool = True

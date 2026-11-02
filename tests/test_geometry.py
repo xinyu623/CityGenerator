@@ -3,12 +3,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import trimesh
-from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon, Polygon
 
 from app.services.buildings import (
     PreparedBuilding,
     PreparedBuildings,
     _known_height_pairs,
+    build_meshes,
     clean_polygons,
     detect_overlaps,
     extrude_building,
@@ -367,12 +368,57 @@ def test_sampled_buildings_record_the_rule_that_produced_their_height():
     assert house.height_rule == "similarity"
     sampling = prepared.height_sampling
     assert sampling["rules"]["similarity"] == 1
+    assert sampling["sampled_buildings"] == 1
+    assert sampling["band_fallback_draws"] == 0
     assert sampling["weighting"] == "type_and_area_similarity"
     assert sampling["type_factors"] == {"same_type": 2.0, "type_group": 1.5}
     assert sampling["area_ratio"] == [0.5, 2.0]
     assert sampling["sampled_above_100m"] == 0
     assert sampling["pool_above_100m"] == 0
     assert sampling["above_100m_by_group"] == {"residential": 0}
+
+
+def test_build_meshes_forwards_the_conservative_sampling_settings():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "250"}, 0.000),
+        _feature(2, {"building": "yes"}, 0.002, size=0.0001),
+    ]
+
+    built = build_meshes(
+        features,
+        projector,
+        min_height_samples=1,
+        height_seed=5,
+        height_conservative=True,
+        height_slenderness_k=8.0,
+    )
+
+    assert built.height_sampling["conservative"] is True
+    assert any(record.height_rule == "conservative_cap" for record in built.records)
+
+
+def test_multipart_buildings_count_once_in_the_sampling_tail():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    part_a = Polygon(
+        [(112.9020, 28.2020), (112.9025, 28.2020), (112.9025, 28.2025), (112.9020, 28.2025)]
+    )
+    part_b = Polygon(
+        [(112.9030, 28.2020), (112.9035, 28.2020), (112.9035, 28.2025), (112.9030, 28.2025)]
+    )
+    multipart = BuildingFeature(
+        osm_type="relation",
+        osm_id=10,
+        tags={"building": "yes"},
+        geometry=MultiPolygon([part_a, part_b]),
+    )
+    features = [_feature(1, {"building": "yes", "height": "9"}, 0.000), multipart]
+
+    prepared = prepare_buildings(features, projector, min_height_samples=1, height_seed=0)
+
+    assert len([item for item in prepared.items if item.height_source == "sampled"]) == 2
+    assert prepared.height_sampling["sampled"] == 2
+    assert prepared.height_sampling["sampled_buildings"] == 1
 
 
 def test_conservative_sampling_is_opt_in():

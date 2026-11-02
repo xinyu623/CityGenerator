@@ -5,8 +5,9 @@ All notable changes to CityGenerator are recorded here.
 ## [Unreleased]
 
 - Height sampling v3: an untagged building now draws from observations whose own
-  footprint is within `0.5–2×` its area (the nearest observations take over when
-  that band is empty), weighted by a log-area kernel and by building type (same
+  footprint is within `0.5–2×` its area (the draw falls back to the weighted pool
+  of every observation with a known area when that band holds none), weighted by
+  a log-area kernel and by building type (same
   `building` type ×2, same type group ×1.5) instead of a uniform draw inside the
   old `0.25–4×` band. OSM tags over-represent towers, so this keeps a 112 m²
   building from copying a 239 m tower. On the 4×4 km sample the sampled
@@ -16,7 +17,9 @@ All notable changes to CityGenerator are recorded here.
   rule that produced its height (`similarity`, `type_cap`, `conservative_cap`)
   as `height_rule` in `buildings.geojson`, and
   `metadata.json → buildings.height_sampling` gains the pool's and the sample's
-  ≥100 m/≥250 m counts by type group, the rule counts, `area_ratio`, and the
+  ≥100 m/≥250 m counts by type group (per OSM building; `sampled` still counts
+  prepared parts and `sampled_buildings` the distinct buildings), the rule
+  counts, `band_fallback_draws` (23 on the 4×4 km sample), `area_ratio`, and the
   weighting parameters (`area_bandwidth_log`, `type_factors`); `area_ratio` is
   now `[0.5, 2.0]`.
 - Optional conservative height mode: `--conservative-heights` /

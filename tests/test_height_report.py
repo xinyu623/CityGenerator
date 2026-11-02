@@ -34,32 +34,32 @@ def _feature(
 def _metadata(
     *,
     known: int = 10,
-    pool_above_100: int = 0,
-    pool_above_250: int = 0,
+    pool_above_100: int | None = 0,
+    pool_above_250: int | None = 0,
     conservative: bool = False,
     slenderness_k: float = 8.0,
 ) -> dict:
-    return {
-        "buildings": {
-            "height_sampling": {
-                "enabled": True,
-                "known": known,
-                "sampled": 10,
-                "jitter": 0.1,
-                "seed": 0,
-                "weighting": "type_and_area_similarity",
-                "conservative": conservative,
-                "slenderness_k": slenderness_k,
-                "rules": {"similarity": 10},
-                "type_capped": 0,
-                "pool_above_100m": pool_above_100,
-                "pool_above_250m": pool_above_250,
-                "sampled_above_100m": 0,
-                "sampled_above_250m": 0,
-                "above_100m_by_group": {},
-            }
-        }
+    sampling = {
+        "enabled": True,
+        "known": known,
+        "sampled": 10,
+        "sampled_buildings": 9,
+        "jitter": 0.1,
+        "seed": 0,
+        "weighting": "type_and_area_similarity",
+        "conservative": conservative,
+        "slenderness_k": slenderness_k,
+        "rules": {"similarity": 10},
+        "type_capped": 0,
+        "sampled_above_100m": 0,
+        "sampled_above_250m": 0,
+        "above_100m_by_group": {},
     }
+    if pool_above_100 is not None:
+        sampling["pool_above_100m"] = pool_above_100
+    if pool_above_250 is not None:
+        sampling["pool_above_250m"] = pool_above_250
+    return {"buildings": {"height_sampling": sampling}}
 
 
 def test_height_report_flags_a_sampled_tail_above_the_pool_share():
@@ -125,6 +125,29 @@ def test_height_report_tolerates_the_geojson_rounding_of_a_capped_sample():
     summary = summarize(_metadata(conservative=True, slenderness_k=8.0), features)
 
     assert check(summary) == []
+
+
+def test_height_report_skips_the_share_check_for_a_pre_v3_job():
+    # A v2.1.1 job has no pool tail counts: the share check cannot run, but the
+    # report must not fail it for that reason.
+    legacy = _metadata(pool_above_100=None, pool_above_250=None)
+    features = [_feature(1, 300.0), *[_feature(index, 9.0) for index in range(2, 11)]]
+
+    summary = summarize(legacy, features)
+
+    assert summary["pool"]["recorded"] is False
+    assert check(summary) == []
+    assert "not recorded" in format_report(summary)
+
+
+def test_height_report_reports_the_metadata_counts():
+    features = [_feature(1, 12.0)]
+
+    summary = summarize(_metadata(), features)
+
+    assert summary["metadata"]["sampled"] == 10
+    assert summary["metadata"]["sampled_buildings"] == 9
+    assert "metadata" in format_report(summary)
 
 
 def test_height_report_loads_a_job_directory(tmp_path: Path):

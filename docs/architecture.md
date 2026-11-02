@@ -162,11 +162,13 @@ Priority:
 
 Untagged buildings sample the selection's tagged heights (`HeightSampler` in
 `app/services/heights.py`). Candidates must lie within 0.5–2× the target
-footprint area (the nearest observations take over when the band is empty) and
-are weighted by a log-area Gaussian kernel plus a `building`-type factor: same
-type ×2, same type group ×1.5. `prepare_buildings` records the rule that produced
-each height (`similarity`, `type_cap`, `conservative_cap`), the pool's and the
-sample's ≥100 m/≥250 m counts, and the optional conservative bound
+footprint area (when the band holds none, the draw falls back to the weighted
+pool of every observation with a known area) and are weighted by a log-area
+Gaussian kernel plus a `building`-type factor: same type ×2, same type group
+×1.5. `prepare_buildings` records the rule that produced each height
+(`similarity`, `type_cap`, `conservative_cap`), the pool's and the sample's
+≥100 m/≥250 m counts (per OSM building, with `sampled` still counting prepared
+parts), the band-fallback draws, and the optional conservative bound
 (`height ≤ k·sqrt(area)`, `k = 8`, `CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE`).
 `python -m app.services.height_report --output <job>` reports the same numbers
 from a finished output directory.

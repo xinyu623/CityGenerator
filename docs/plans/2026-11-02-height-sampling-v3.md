@@ -45,7 +45,8 @@ handoff's "Current 4×4 km reference numbers".
   - `KnownHeight(height_m: float, area_m2: float = 0.0, building_type: str = "")` — frozen dataclass.
   - `SampledHeight(height_m: float, rule: str)` — frozen dataclass; `rule` in `{"similarity", "pool", "type_cap", "conservative_cap"}`.
   - `HeightSampler(known, *, jitter=0.1, seed=0, conservative=False, slenderness_k=8.0)`; `draw(area_m2=None, building_type=None) -> SampledHeight`.
-  - Weight constants `TYPE_WEIGHT = 2.0`, `GROUP_WEIGHT = 1.5`, `AREA_BANDWIDTH_LOG = 0.7`.
+  - Weight constants `TYPE_WEIGHT = 2.0`, `GROUP_WEIGHT = 1.5`, `AREA_BANDWIDTH_LOG = 0.5`,
+    `AREA_RATIO_MIN = 0.5`, `AREA_RATIO_MAX = 2.0`.
 
 - [ ] **Step 1: Write the failing tests**
 

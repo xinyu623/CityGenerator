@@ -397,20 +397,37 @@ def _sampling_metadata(
 
 def _sampled_tail(
     items: Sequence[PreparedBuilding],
-) -> tuple[int, int, dict[str, int]]:
-    """Sampled buildings above 100 m and 250 m, plus the 100 m counts by type group."""
+) -> tuple[int, int, int, dict[str, int]]:
+    """Sampled buildings (one per OSM id) and their ≥100 m/≥250 m counts.
 
-    sampled = [item for item in items if item.height_source == "sampled"]
-    above_100 = sum(1 for item in sampled if item.height_m >= 100.0)
-    above_250 = sum(1 for item in sampled if item.height_m >= 250.0)
+    A multi-polygon building is prepared once per part but drawn once, so the
+    tail is aggregated by ``(osm_type, osm_id)``: counting parts would inflate
+    the tall share and let a part-heavy city flip the acceptance check.
+    """
+
+    buildings: dict[tuple[str, int], tuple[float, str]] = {}
+    for item in items:
+        if item.height_source != "sampled":
+            continue
+        buildings.setdefault(
+            (item.osm_type, item.osm_id),
+            (item.height_m, item.tags.get("building", "")),
+        )
+    above_100 = sum(1 for height, _building in buildings.values() if height >= 100.0)
+    above_250 = sum(1 for height, _building in buildings.values() if height >= 250.0)
     counts: Counter[str] = Counter()
     present: set[str] = set()
-    for item in sampled:
-        group = building_type_group(item.tags.get("building"))
+    for height, building in buildings.values():
+        group = building_type_group(building)
         present.add(group)
-        if item.height_m >= 100.0:
+        if height >= 100.0:
             counts[group] += 1
-    return above_100, above_250, {group: counts.get(group, 0) for group in sorted(present)}
+    return (
+        len(buildings),
+        above_100,
+        above_250,
+        {group: counts.get(group, 0) for group in sorted(present)},
+    )
 
 
 def prepare_buildings(
@@ -552,7 +569,9 @@ def prepare_buildings(
     result.height_sampling["sampled"] = result.height_sources.get("sampled", 0)
     result.height_sampling["rules"] = dict(sorted(rules.items()))
     if sampler is not None:
-        above_100, above_250, by_group = _sampled_tail(result.items)
+        sampled_buildings, above_100, above_250, by_group = _sampled_tail(result.items)
+        result.height_sampling["sampled_buildings"] = sampled_buildings
+        result.height_sampling["band_fallback_draws"] = sampler.band_fallbacks
         result.height_sampling["type_capped"] = rules.get("type_cap", 0)
         result.height_sampling["sampled_above_100m"] = above_100
         result.height_sampling["sampled_above_250m"] = above_250
@@ -725,6 +744,8 @@ def build_meshes(
     height_jitter: float = 0.1,
     height_seed: int = 0,
     min_height_samples: int = 5,
+    height_conservative: bool = False,
+    height_slenderness_k: float = 8.0,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> BuildResult:
@@ -741,6 +762,8 @@ def build_meshes(
         height_jitter=height_jitter,
         height_seed=height_seed,
         min_height_samples=min_height_samples,
+        height_conservative=height_conservative,
+        height_slenderness_k=height_slenderness_k,
         cancel_event=cancel_event,
     )
     return extrude_prepared(

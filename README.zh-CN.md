@@ -214,8 +214,8 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
    预期的障碍物形状，但会增加近地面网格量。
 5. 检查 `MISSING_HEIGHT`、`HEIGHT_CLAMPED` 和 `STEEP_FOOTPRINT` 警告。缺少
    高度标签的建筑会从本区域 OSM 已知高度中随机取值，候选样本限定在自身
-   `0.5–2` 倍轮廓面积范围内（带内没有样本时退化为最近的样本），并按面积相似度
-   和建筑类型加权（`buildings.height_sampling`）；车站、学校、展馆、仓储等
+   `0.5–2` 倍轮廓面积范围内（带内没有样本时退化为全部已知面积样本的加权池），
+   并按面积相似度和建筑类型加权（`buildings.height_sampling`）；车站、学校、展馆、仓储等
    低层类型另有采样上限。每栋采样建筑在 `buildings.geojson → height_rule` 中
    记录取值规则。加 `--conservative-heights` 可得到更平缓的天际线：采样高度
    再受 `k·√面积`（`k = 8`）约束。可用

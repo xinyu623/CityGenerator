@@ -149,14 +149,27 @@ def test_height_sampler_prefers_heights_from_similar_footprints():
     assert 4.0 not in large
 
 
-def test_height_sampler_fades_far_observations_instead_of_cutting_them_off():
+def test_height_sampler_weights_the_closer_observation_inside_the_band():
+    sampler = HeightSampler(
+        [KnownHeight(9.0, 700.0, "yes"), KnownHeight(250.0, 1300.0, "yes")],
+        jitter=0.0,
+        seed=0,
+    )
+
+    indexes, weights, rule = sampler._candidates(700.0, "yes")
+
+    assert rule == "similarity"
+    assert len(indexes) == 2  # both are inside the 0.5-2x band
+    assert weights[0] > weights[1]
+
+
+def test_height_sampler_counts_the_band_fallbacks():
     sampler = HeightSampler([(4.0, 20.0), (100.0, 5000.0)], jitter=0.0, seed=1)
 
-    values = {sampler.draw(1_000_000.0).height_m for _ in range(200)}
+    sampler.draw(1_000_000.0)  # band empty
+    sampler.draw(30.0)  # band populated
 
-    # Neither observation is close to a 1e6 m2 target, so the kernel picks the
-    # nearer one instead of falling back to a uniform pool.
-    assert values == {100.0}
+    assert sampler.band_fallbacks == 1
 
 
 def test_height_sampler_samples_uniformly_when_no_observation_has_an_area():
@@ -203,7 +216,7 @@ def test_building_type_group_maps_osm_values(building_type, group):
 
 def test_height_sampler_ignores_observations_far_from_the_target_area():
     # For a 112 m2 building the only in-band observation is the 200 m2 one; the
-    # nearer-in-log-space 30 m2 shed is a different size class and must not win.
+    # 30 m2 shed is farther in log space and outside the band, so it must not win.
     sampler = HeightSampler(
         [KnownHeight(3.0, 30.0, "yes"), KnownHeight(12.0, 200.0, "yes")],
         jitter=0.0,
@@ -237,11 +250,12 @@ def test_area_band_edges_are_inclusive():
     assert {sampler.draw(110.0, "yes").height_m for _ in range(200)} == {60.0}
 
 
-def test_height_sampler_prefers_the_same_type_and_area():
-    # Twenty walk-ups of 700 m2 and one 250 m tower: the kernel plus the type
-    # weight must keep the tower out of a 700 m2 draw.
+def test_height_sampler_protects_a_small_footprint_from_a_band_edge_tower():
+    # Twenty walk-ups of 700 m2 and one 250 m tower at 1300 m2, which is inside
+    # the 0.5-2x band: only the kernel and the equal group weight keep the tower
+    # rare (about 2 % of draws), never impossible.
     known = [KnownHeight(9.0, 700.0, "yes") for _ in range(20)]
-    known.append(KnownHeight(250.0, 1700.0, "yes"))
+    known.append(KnownHeight(250.0, 1300.0, "yes"))
     sampler = HeightSampler(known, jitter=0.0, seed=0)
 
     draws = [sampler.draw(700.0, "yes") for _ in range(200)]

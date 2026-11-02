@@ -343,10 +343,16 @@ class HeightSampler:
         self._areas = [row[1] for row in rows]
         self._types = [row[2] for row in rows]
         self._groups = [building_type_group(row[2]) for row in rows]
+        # ``math.log`` is called once per observation per draw otherwise; the pool
+        # can hold thousands of observations at the 20k-building cap.
+        self._log_areas = [math.log(row[1]) if row[1] > 0.0 else 0.0 for row in rows]
         self._jitter = max(0.0, float(jitter))
         self._rng = random.Random(int(seed))
         self._conservative = bool(conservative)
         self._slenderness_k = max(0.0, float(slenderness_k))
+        # Draws that had to fall back to the weighted pool because the 0.5-2x
+        # footprint band held no observation; a diagnostic for sparse tags.
+        self.band_fallbacks = 0
 
     def __len__(self) -> int:
         return len(self._values)
@@ -388,7 +394,7 @@ class HeightSampler:
         ):
             if area <= 0.0:
                 continue
-            delta = (math.log(area) - log_target) / AREA_BANDWIDTH_LOG
+            delta = (self._log_areas[index] - log_target) / AREA_BANDWIDTH_LOG
             weight = math.exp(-0.5 * delta * delta)
             if key and key not in _UNSPECIFIED_TYPES and candidate_type.lower() == key:
                 weight *= TYPE_WEIGHT
@@ -409,6 +415,8 @@ class HeightSampler:
         if in_band:
             indexes = [index for index, _weight in in_band]
             weights = [weight for _index, weight in in_band]
+        else:
+            self.band_fallbacks += 1
         return indexes, weights, "similarity"
 
     def draw(

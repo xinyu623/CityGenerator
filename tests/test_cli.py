@@ -99,7 +99,70 @@ def test_cli_parser_accepts_the_conservative_height_flags():
     )
 
     assert args.conservative_heights is True
+    assert args.no_conservative_heights is False
     assert args.slenderness_k == pytest.approx(6.0)
+
+    disabled = build_parser().parse_args(
+        ["--bbox", "1,2,3,4", "--out", "x", "--no-conservative-heights"]
+    )
+    assert disabled.no_conservative_heights is True
+    assert disabled.conservative_heights is False
+
+
+def test_cli_rejects_both_conservative_height_flags():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--bbox",
+                "1,2,3,4",
+                "--out",
+                "x",
+                "--conservative-heights",
+                "--no-conservative-heights",
+            ]
+        )
+
+
+def test_cli_no_conservative_heights_overrides_the_environment(tmp_path, monkeypatch):
+    import app.services.pipeline as pipeline_module
+
+    monkeypatch.setenv("CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE", "true")
+    monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", _fake_fetch(FIXTURE))
+    captured: dict[str, object] = {}
+    real_prepare = pipeline_module.prepare_buildings
+
+    def spy(features, projector, **kwargs):
+        captured.update(kwargs)
+        return real_prepare(features, projector, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "prepare_buildings", spy)
+
+    code = main(
+        [
+            "--bbox",
+            BBOX,
+            "--out",
+            str(tmp_path / "job"),
+            "--no-terrain",
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--no-conservative-heights",
+        ]
+    )
+
+    assert code == 0
+    assert captured["height_conservative"] is False
+
+
+def test_settings_reject_a_non_finite_slenderness_k():
+    from pydantic import ValidationError
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(height_sampling_slenderness_k=float("inf"))
+
+    assert Settings(height_sampling_slenderness_k=0.0).height_sampling_slenderness_k == 0.0
 
 
 def test_cli_passes_the_conservative_height_settings_to_the_pipeline(tmp_path, monkeypatch):
@@ -137,7 +200,6 @@ def test_cli_passes_the_conservative_height_settings_to_the_pipeline(tmp_path, m
 
 def test_summary_prints_on_a_gbk_console(tmp_path, capsys):
     # Windows consoles default to GBK, which has no "²"; a finished job must
-    # still print its summary there instead of crashing after the work is done.
     # still print its summary there instead of crashing after the work is done.
     result = PipelineResult(
         stats={
