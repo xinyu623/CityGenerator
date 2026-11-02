@@ -2,7 +2,7 @@
 
 All notable changes to CityGenerator are recorded here.
 
-## [Unreleased]
+## [2.1.0] - 2026-11-02
 
 - CI: GitHub Actions runs `ruff check app tests` and the offline `pytest` suite
   on every push and pull request.
