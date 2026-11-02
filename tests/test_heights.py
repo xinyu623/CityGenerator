@@ -309,6 +309,18 @@ def test_conservative_bound_is_inactive_without_an_area():
     assert sampler.draw(0.0, "yes").height_m == pytest.approx(200.0)
 
 
+def test_conservative_bound_is_ignored_when_k_is_not_positive():
+    sampler = HeightSampler(
+        [KnownHeight(200.0, 400.0, "yes")],
+        jitter=0.0,
+        seed=0,
+        conservative=True,
+        slenderness_k=0.0,
+    )
+
+    assert sampler.draw(400.0, "yes").height_m == pytest.approx(200.0)
+
+
 def test_type_ceiling_survives_the_conservative_bound():
     # A 100 m observation for a shed: the 10 m type ceiling wins over the
     # (looser) 80 m slenderness bound for a 100 m2 footprint.

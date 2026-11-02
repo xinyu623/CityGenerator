@@ -431,7 +431,7 @@ class HeightSampler:
         if cap is not None and value > cap:
             value = cap
             rule = "type_cap"
-        if self._conservative and area_m2 is not None:
+        if self._conservative and self._slenderness_k > 0.0 and area_m2 is not None:
             try:
                 target = float(area_m2)
             except (TypeError, ValueError):
