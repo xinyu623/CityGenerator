@@ -14,8 +14,9 @@ from app.config import Settings
 from app.models.schemas import FileInfo, GenerateRequest, WarningItem
 from app.services.buildings import (
     BuildCancelled,
-    build_meshes,
     detect_overlaps,
+    extrude_prepared,
+    prepare_buildings,
 )
 from app.services.city import fuse_city
 from app.services.errors import (
@@ -30,6 +31,12 @@ from app.services.osm_parse import parse_buildings
 from app.services.output import write_outputs
 from app.services.overpass import OverpassClient
 from app.services.projection import Projector, projector_for_bbox
+from app.services.terrain import (
+    ElevationSource,
+    TerrainGrid,
+    build_terrain_grid,
+    build_terrain_solid,
+)
 
 ProgressCallback = Callable[[int, str, str], None]
 
@@ -92,6 +99,10 @@ def _noop_progress(percent: int, stage: str, message: str) -> None:
     del percent, stage, message
 
 
+def _terrain_percent(done: int, total: int) -> int:
+    return 36 + int(4 * done / max(total, 1))
+
+
 def run_pipeline(
     request: GenerateRequest,
     settings: Settings,
@@ -99,6 +110,7 @@ def run_pipeline(
     *,
     progress_cb: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
+    elevation_source: ElevationSource | None = None,
 ) -> PipelineResult:
     progress = progress_cb or _noop_progress
     cancel = cancel_event or threading.Event()
@@ -117,15 +129,27 @@ def run_pipeline(
         )
 
     progress(4, "fetching", "从 Overpass 获取建筑数据")
+
+    def overpass_progress(done: int, total: int) -> None:
+        progress(
+            4 + int(18 * done / max(total, 1)),
+            "fetching",
+            f"已下载 {done}/{total} 个 OSM 分块",
+        )
+
     overpass = OverpassClient(settings)
     try:
-        fetched = overpass.fetch(request.bbox, refresh=request.refresh)
+        fetched = overpass.fetch(
+            request.bbox,
+            refresh=request.refresh,
+            progress_cb=overpass_progress,
+        )
     finally:
         overpass.close()
     write_json_atomic(job_dir / "raw_osm.json", fetched.raw)
     check_cancel()
 
-    progress(24, "parsing", "解析 OSM 建筑轮廓")
+    progress(22, "parsing", "解析 OSM 建筑轮廓")
     features = parse_buildings(fetched.raw)
     if not features:
         raise NoBuildingsError("该区域没有可用的建筑数据")
@@ -135,25 +159,75 @@ def run_pipeline(
             f"当前 {len(features)} 栋，上限 {settings.max_buildings} 栋",
         )
 
-    progress(34, "projecting", "投影到局部米制坐标")
+    progress(30, "projecting", "投影到局部米制坐标")
     projector = projector_for_bbox(*request.bbox.as_tuple())
     check_cancel()
 
-    progress(40, "building", "清理并挤出建筑")
+    progress(34, "building", "清理建筑轮廓并解析高度")
 
-    def build_progress(done: int, total: int) -> None:
-        percent = 40 + int(40 * done / max(total, 1))
-        progress(percent, "building", f"已处理 {done}/{total} 栋建筑")
+    def prepare_progress(done: int, total: int) -> None:
+        percent = 34 + int(2 * done / max(total, 1))
+        progress(percent, "building", f"已清理 {done}/{total} 栋建筑轮廓")
 
     try:
-        build_result = build_meshes(
+        prepared = prepare_buildings(
             features,
             projector,
             default_height_m=request.options.default_height_m,
             level_height_m=request.options.level_height_m,
-            embed_depth_m=request.options.embed_depth_m,
             simplify_m=request.options.simplify_m,
             min_building_area_m2=request.options.min_building_area_m2,
+            progress_cb=prepare_progress,
+            cancel_event=cancel,
+        )
+    except BuildCancelled as exc:
+        raise JobCancelled("任务已取消") from exc
+
+    if not prepared.items:
+        raise NoBuildingsError("建筑轮廓均无效，未能生成任何模型")
+
+    bbox_bounds = bbox_local_bounds(projector, request)
+    combined_bounds = _union_bounds(bbox_bounds, prepared.bounds)
+    assert combined_bounds is not None
+    margin = request.options.ground_margin_m
+    base_bounds = (
+        combined_bounds[0] - margin,
+        combined_bounds[1] - margin,
+        combined_bounds[2] + margin,
+        combined_bounds[3] + margin,
+    )
+
+    terrain: TerrainGrid | None = None
+    if request.options.terrain.enabled:
+        progress(35, "terrain", "获取地形高程数据")
+
+        def terrain_progress(done: int, total: int) -> None:
+            progress(_terrain_percent(done, total), "terrain", f"已获取 {done}/{total} 个高程瓦片")
+
+        try:
+            terrain = build_terrain_grid(
+                base_bounds,
+                projector,
+                settings=settings,
+                resolution_m=request.options.terrain.resolution_m,
+                source=elevation_source,
+                cancel_event=cancel,
+                progress_cb=terrain_progress,
+            )
+        except BuildCancelled as exc:
+            raise JobCancelled("任务已取消") from exc
+        check_cancel()
+    progress(40, "building", "挤出建筑并贴合地形")
+
+    def build_progress(done: int, total: int) -> None:
+        percent = 40 + int(38 * done / max(total, 1))
+        progress(percent, "building", f"已处理 {done}/{total} 栋建筑")
+
+    try:
+        build_result = extrude_prepared(
+            prepared,
+            terrain=terrain,
+            embed_depth_m=request.options.embed_depth_m,
             progress_cb=build_progress,
             cancel_event=cancel,
         )
@@ -167,6 +241,11 @@ def run_pipeline(
         WarningItem(code=issue.code, message=issue.message, count=issue.count)
         for issue in build_result.warnings
     ]
+    if terrain is not None:
+        warnings.extend(
+            WarningItem(code=issue.code, message=issue.message, count=issue.count)
+            for issue in terrain.warnings
+        )
     overlap_count = detect_overlaps([record.polygon_local for record in build_result.records])
     if overlap_count:
         warnings.append(
@@ -178,27 +257,24 @@ def run_pipeline(
         )
 
     check_cancel()
-    progress(82, "ground", "生成实体地面底座")
+    progress(80, "ground", "生成实体地形底座" if terrain is not None else "生成实体地面底座")
 
-    bbox_bounds = bbox_local_bounds(projector, request)
-    combined_bounds = _union_bounds(bbox_bounds, build_result.bounds)
-    assert combined_bounds is not None
-    margin = request.options.ground_margin_m
-    base_bounds = (
-        combined_bounds[0] - margin,
-        combined_bounds[1] - margin,
-        combined_bounds[2] + margin,
-        combined_bounds[3] + margin,
-    )
-    base = build_ground(
-        base_bounds,
-        mode="slab",
-        thickness_m=settings.ground_slab_thickness_m,
-    )
+    if terrain is not None:
+        base = build_terrain_solid(terrain, thickness_m=settings.ground_slab_thickness_m)
+    else:
+        base = build_ground(
+            base_bounds,
+            mode="slab",
+            thickness_m=settings.ground_slab_thickness_m,
+        )
 
     check_cancel()
-    progress(86, "fusing", "融合建筑与地面")
-    city = fuse_city(build_result.meshes, base)
+    progress(84, "fusing", "融合建筑与地面")
+    city = fuse_city(
+        build_result.meshes,
+        base,
+        base_thickness_m=settings.ground_slab_thickness_m,
+    )
 
     check_cancel()
     progress(90, "exporting", "写出 STL、元数据和下载包")
@@ -214,6 +290,7 @@ def run_pipeline(
         city=city,
         settings=settings,
         warnings=warnings,
+        terrain=terrain,
     )
 
     stats: dict[str, Any] = {
@@ -229,6 +306,11 @@ def run_pipeline(
         "area_km2": round(area, 4),
         "from_cache": fetched.from_cache,
         "osm_base_timestamp": fetched.meta.get("osm_base_timestamp", ""),
+        "terrain_enabled": terrain is not None,
+        "terrain_relief_m": round(terrain.relief_m, 3) if terrain is not None else 0.0,
+        "terrain_resolution_m": round(terrain.resolution_m, 2) if terrain is not None else 0.0,
+        "terrain_source": str(terrain.meta.get("source", "")) if terrain is not None else "flat",
+        "terrain_triangles": terrain.triangle_count if terrain is not None else 0,
     }
     progress(100, "completed", "生成完成")
 

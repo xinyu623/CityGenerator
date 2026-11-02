@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
 from pyproj import Transformer
 
 
@@ -59,6 +60,16 @@ class Projector:
 
     def origin_wgs84(self) -> tuple[float, float]:
         return self.local_to_wgs84(0.0, 0.0)
+
+    def local_many_to_wgs84(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Vectorised inverse projection for grids of local points."""
+
+        easting = np.asarray(x, dtype=float) + self.origin_easting
+        northing = np.asarray(y, dtype=float) + self.origin_northing
+        longitude, latitude = self._inverse.transform(easting, northing)
+        return np.asarray(longitude, dtype=float), np.asarray(latitude, dtype=float)
 
 
 def projector_for_bbox(south: float, west: float, north: float, east: float) -> Projector:

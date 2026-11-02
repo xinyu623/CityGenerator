@@ -39,8 +39,11 @@ static files are included in the Python package via `pyproject.toml`.
 | `app/services/osm_parse.py` | `osm2geojson` conversion, building filtering, relation handling. |
 | `app/services/projection.py` | UTM zone selection, `Projector`, local ↔ WGS84. |
 | `app/services/heights.py` | Parse `height`, `building:levels`, `min_height`, clamp. |
-| `app/services/buildings.py` | Clean/project footprints, extrude shells, overlap detection. |
-| `app/services/ground.py` | Solid ground slab. |
+| `app/services/terrain.py` | DEM height grid, exact triangle sampling, footprint minima, closed terrain solid. |
+| `app/services/dem.py` | Terrarium tile fetch/decode/cache, zoom choice, mosaicking, reprojection. |
+| `app/services/issues.py` | Shared `Issue` (code/message/count) warning record. |
+| `app/services/buildings.py` | Clean/project footprints, resolve heights, place on terrain, extrude shells. |
+| `app/services/ground.py` | Flat solid ground slab (terrain disabled). |
 | `app/services/city.py` | Manifold boolean union, contact weld repair, closed-city validation. |
 | `app/services/stl_export.py` | Binary STL writer/reader, validation, non-manifold edge count. |
 | `app/services/output.py` | Metadata, GeoJSON, README, ZIP, file inventory. |
@@ -77,16 +80,20 @@ the Overpass cache are pruned after `CITYGEN_JOB_TTL_DAYS` /
 | Stage | Approx. percent | Work |
 | --- | --- | --- |
 | `validating` | 0 | Bounds order, area cap, option bounds. |
-| `fetching` | 4–24 | Overpass cache lookup or HTTP request. |
-| `parsing` | 24–34 | OSM JSON → Shapely footprints. |
-| `projecting` | 34 | UTM projector + local origin. |
-| `building` | 40–80 | Project/clean/extrude each footprint. |
-| `ground` | 82 | Solid 1 m ground slab. |
-| `fusing` | 86 | Boolean-union buildings and base; weld edge contacts. |
+| `fetching` | 4–22 | Overpass cache lookup or HTTP request. |
+| `parsing` | 22–30 | OSM JSON → Shapely footprints. |
+| `projecting` | 30–34 | UTM projector + local origin. |
+| `building` | 34–40 | Project/clean/resolve heights for every footprint. |
+| `terrain` | 35–40 | DEM tile fetch, grid resampling, terrain block. |
+| `building` | 40–78 | Place each shell on the terrain and extrude it. |
+| `ground` | 80 | Solid terrain block (or 1 m flat slab). |
+| `fusing` | 84 | Boolean-union buildings and base; weld edge contacts. |
 | `exporting` | 90 | STL validation, metadata, GeoJSON, ZIP. |
 | `completed` | 100 | Terminal. |
 
 The exact percentages are advisory; the UI shows the stage label and message.
+`building` appears twice because footprints must be projected before the terrain
+extent is known, and extruded after the terrain exists.
 
 ## Data flow
 
@@ -95,16 +102,25 @@ The exact percentages are advisory; the UI shows the stage label and message.
 `OverpassClient` builds a versioned query (`buildings-v1`) over ways and
 relations with a `building` tag, then fetches member nodes via `out body; >;
 out skel qt;`. It tries configured endpoints in order, retries transient
-failures, and enforces a minimum interval between requests. Successful raw JSON
-is cached at:
+failures, and enforces a minimum interval between requests.
+
+A selection larger than `overpass_chunk_area_km2` (default `4 km²`) is split
+into a grid of cells of at most `sqrt(4) = 2 km` per side
+(`OverpassClient.chunk_bboxes`). Each cell is a normal query and is cached on its
+own; the raw payloads are merged afterwards, dropping elements that appear in
+more than one cell (a way crossing a cell border is returned whole by every cell
+that touches it). A failed cell fails the whole fetch — a silently missing cell
+would drop buildings — and every cell keeps the endpoint retry/backoff policy.
+Successful raw JSON is cached at:
 
 ```text
 data/cache/osm/<sha256(query_version|bbox)>.json
 ```
 
-The cache key deliberately ignores options such as default height: the raw OSM
-response is independent of modelling parameters. `refresh=true` bypasses the
-cache.
+for both the individual cells and the merged parent bbox. The cache key
+deliberately ignores options such as default height: the raw OSM response is
+independent of modelling parameters. `refresh=true` bypasses the cache and
+re-fetches every cell.
 
 ### 2. Parsing
 
@@ -137,7 +153,52 @@ Priority:
 `min_height` raises the base. Heights are clamped to a safe range and produce
 `HEIGHT_CLAMPED`; missing heights produce `MISSING_HEIGHT`.
 
-### 5. Footprint cleanup and extrusion
+### 5. Terrain (DEM)
+
+Terrain is on by default. `app/services/dem.py` implements the AWS Terrarium
+source:
+
+- `choose_zoom` picks the shallowest zoom whose pixel is finer than the
+  requested resolution, clamped to `dem_zoom_min`/`dem_zoom_max`.
+- Tiles are fetched from
+  `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`,
+  cached at `data/cache/dem/aws-terrarium-1/<z>/<x>/<y>.png`, retried with
+  backoff on 429/5xx, and reused regardless of the requested bbox.
+- The 8-bit RGB PNG is decoded with Pillow as
+  `m = R*256 + G + B/256 - 32768`; bilinear interpolation inside a tile,
+  straight mosaic lookup across tiles.
+- The tile set is planned up front and reduced (one zoom level down at a time,
+  recording `zoom_reduced`) if it would exceed `dem_max_tiles`.
+- Failures raise `TerrainError` → `TERRAIN_FETCH_FAILED`; there is no silent
+  flat fallback.
+
+`app/services/terrain.py` turns the sampled values into a `TerrainGrid`:
+
+- Grid spacing comes from `terrain.resolution_m` (default 30 m, allowed 5–50 m),
+  coarsened until the cell count fits `max_terrain_cells` (warning
+  `TERRAIN_RESOLUTION_REDUCED`).
+- Grid nodes are transformed to WGS84 with `Projector.local_many_to_wgs84` and
+  sampled at the DEM.
+- A margin of `kernel // 2` cells is sampled and cropped away after filtering, so
+  the running median never sees replicated edge values.
+- The field is smoothed with an exact 2-D running median whose width is fixed in
+  ground metres (`DEFAULT_SMOOTHING_M = 150 m`, recorded as `smoothing_m` and
+  `filter`). The source is a surface model: without this step a single bad 30 m
+  cell becomes a 100 m-wide dome. Median, not mean, so linear slopes survive.
+- Nodata pixels are filled from neighbouring nodes (`TERRAIN_NODATA_FILLED`);
+  an all-nodata area raises `TerrainDataError` → `TERRAIN_DATA_MISSING`.
+- Heights are shifted so the minimum is `0`; the shift is kept as
+  `datum_offset_m` for metadata.
+- `surface_z(x, y)` reproduces the mesh exactly (each cell is split along
+  `v00–v11`), and `min_over(polygon)`/`relief_over(polygon)` use the covering
+  nodes plus exact vertex and centroid samples to stay conservative.
+- `build_terrain_solid` emits top triangles, a vertical skirt along the border,
+  and a flat bottom at `-thickness`, all consistently wound. The skirt is one
+  quad per border segment (every border node carries its own bottom vertex), so
+  it follows the border profile exactly; a corner fan would bridge concave
+  stretches and leave a zero-thickness wall hanging above the low ground.
+
+### 6. Footprint cleanup and extrusion
 
 - `make_valid` / `buffer(0)` repairs self-intersections.
 - Rings are oriented counter-clockwise (exterior) with holes preserved.
@@ -148,18 +209,33 @@ Priority:
 - Degenerate faces are removed, winding/normals are repaired, and each shell is
   checked for watertightness, consistent winding, finite vertices, and positive
   volume before it is accepted.
-- If `base_m <= 0` and `embed_depth_m > 0`, the shell is extended below `z=0` by
-  the embed depth. This avoids a coplanar building-bottom/ground interface.
+- If `base_m <= 0` and `embed_depth_m > 0`, the shell is extended below its
+  ground height by the embed depth. This avoids a coplanar
+  building-bottom/ground interface.
+- With terrain, the shell is translated to `min_over(footprint)` first, so the
+  embedded bottom sits inside the hill and the union cuts the building at the
+  real ground line. Footprints spanning more than 3 m of relief raise
+  `STEEP_FOOTPRINT`.
+
+Batch work is split in two phases: `prepare_buildings` projects, cleans, and
+resolves heights (and returns the union of all footprint bounds so the terrain
+can cover them), then `extrude_prepared` places and extrudes each shell.
+`build_meshes` remains as a flat-ground single-call wrapper.
 
 Individual heights and source attributes are preserved in the building records
 until extrusion. Overlaps are still counted with a Shapely `STRtree` and
 reported as `OVERLAP_DETECTED`, but all accepted shells now enter the city union.
 
-### 6. Ground, fusion, and STL
+### 7. Ground, fusion, and STL
 
-The ground is always a closed slab: a box from `-ground_slab_thickness_m` to `0`,
-covering the union of the selected bbox and all building footprints plus
-`ground_margin_m`. There is no open plane mode.
+The base is always a closed solid covering the union of the selected bbox and
+all building footprints plus `ground_margin_m`:
+
+- terrain enabled: the `build_terrain_solid` block, top = DEM, bottom =
+  `-ground_slab_thickness_m`;
+- terrain disabled: a flat box from `-ground_slab_thickness_m` to `0`.
+
+There is no open plane mode.
 
 `app/services/city.py` performs the fusion:
 
@@ -170,8 +246,8 @@ covering the union of the selected bbox and all building footprints plus
    non-manifold edges again.
 4. If the round-trip fails, merge vertices in memory, collect every edge with
    more than two incident faces, cluster nearby bad edges, add one solid box
-   with 0.4 m padding around each cluster, and repeat the union. Up to eight
-   passes are allowed.
+   with 0.4 m padding around each cluster, and repeat the union. Up to
+   `MAX_WELD_PASSES` passes are allowed.
 5. If the result still fails, raise `CITY_UNION_FAILED`; never fall back to
    concatenation.
 
@@ -182,18 +258,21 @@ are that material. `city.weld_repairs` records how many were needed.
 Binary STL is written with an 80-byte header, uint32 triangle count, and 50 bytes
 per triangle. `write_outputs` validates the loaded file again and records
 `triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
-`non_manifold_edges`, `base_thickness_m`, `union_engine`, and `weld_repairs`
-under metadata `city`.
+`non_manifold_edges`, `base_thickness_m`, `terrain_triangle_count`,
+`union_engine`, and `weld_repairs` under metadata `city`.
 
-### 7. Output bundle
+### 8. Output bundle
 
 `write_outputs` produces `city.stl`, `metadata.json`, `buildings.geojson`,
 `README.txt`, and `result.zip`. There are no separate building or ground STLs in
 the job files or ZIP. It also writes an internal `preview.stl` assembled from
-the individual building shells and a clean base box; this display-only mesh
-excludes boolean welds and is served only by `/api/jobs/{id}/preview.stl`.
-Writes use a temp file + replace so a crash never leaves a half-written JSON/ZIP
-visible. The metadata schema version is `1.0`.
+the individual building shells and the clean base mesh (`FusedCity.base_mesh`:
+the terrain block when enabled); this display-only mesh excludes boolean welds
+and is served only by `/api/jobs/{id}/preview.stl`. Writes use a temp file +
+replace so a crash never leaves a half-written JSON/ZIP visible. The metadata
+schema version is `2.0`; it adds a `terrain` block (`enabled`, source, zoom,
+grid, datum, relief, tile counts, nodata fill), `ground.surface`/`mode`, and the
+per-building `ground_m`/`roof_m`/`footprint_relief_m` in `buildings.geojson`.
 
 ## Frontend
 
@@ -235,6 +314,8 @@ optional `detail`:
 | `OVERPASS_FAILED` | All endpoints/retries failed. |
 | `OSM_PARSE_FAILED` | OSM JSON could not be parsed. |
 | `GEOMETRY_ERROR` | Geometry construction failed. |
+| `TERRAIN_FETCH_FAILED` | DEM tiles could not be downloaded after retries. |
+| `TERRAIN_DATA_MISSING` | The DEM has no usable elevation for the selection. |
 | `CITY_UNION_FAILED` | Buildings and ground could not be fused into a closed city. |
 | `JOB_CANCELLED` | Cancellation observed by the worker. |
 | `SERVER_RESTARTED` | Recovered job from a previous process. |
@@ -252,7 +333,8 @@ a job that is still stopping, and `422` for schema validation failures.
 - Cancellation is cooperative: the pipeline checks a `threading.Event` between
   stages and every building.
 - Overpass requests are throttled per process; cached responses avoid repeated
-  load on public endpoints.
+  load on public endpoints. Large selections are fetched as ≤4 km² cells, so one
+  timed-out request only costs one cell, and cells are reused across runs.
 - Job/output paths are derived from a UUID and file names are allow-listed;
   path traversal is rejected.
 
@@ -270,10 +352,16 @@ Per-building geometry itself is fast (about 0.6 s for 400 buildings in a
 profile); the original cache-hit bottleneck was rewriting `job.json` for every
 building, which is now throttled.
 
+Terrain adds a one-off DEM download (2 tiles, ~1 MB, ≈1–3 s cold, cached after
+that) plus grid sampling and the boolean union. For 748 buildings over a
+1.1 km × 1.1 km grid at 30 m (≈3.0 k terrain triangles, 26.7 k in total) the
+terrain solid and union take ≈0.2 s, and `city.stl` is ≈1.3 MB.
+
 ## Deliberate non-goals
 
-No terrain/DEM, roads, vegetation, water, pitched roofs, `building:part`,
-volumetric mesh, boundary conditions, solver case generation, or multi-user
-authentication. Boolean fusion is now part of the pipeline, but it is deliberately
-limited to producing one closed surface; it does not reconstruct architectural
-details or merge touching buildings into shared walls.
+No roads, vegetation, water, pitched roofs, `building:part`, volumetric mesh,
+boundary conditions, solver case generation, or multi-user authentication. The
+terrain is a DEM grid, not a survey: no cliff, building, or vegetation detail,
+and no stream carving. Boolean fusion is now part of the pipeline, but it is
+deliberately limited to producing one closed surface; it does not reconstruct
+architectural details or merge touching buildings into shared walls.

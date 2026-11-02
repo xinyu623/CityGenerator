@@ -205,6 +205,7 @@ function buildPedestal(state, box) {
   const width = size.x + margin * 2;
   const depth = size.z + margin * 2;
   const height = Math.max(1.2, Math.min(maxDim * 0.025, 36));
+
   const bevel = Math.min(Math.min(width, depth) * 0.018, height * 0.42);
 
   const geometry = state.RoundedBoxGeometry

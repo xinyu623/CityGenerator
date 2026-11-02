@@ -27,6 +27,7 @@ class FusedCity:
     mesh: trimesh.Trimesh
     base_bounds: tuple[float, float, float, float]
     base_thickness_m: float
+    base_mesh: trimesh.Trimesh | None = None
     engine: str = MANIFOLD_ENGINE
     weld_repairs: int = 0
 
@@ -130,6 +131,8 @@ def validate_city(mesh: trimesh.Trimesh) -> None:
 def fuse_city(
     buildings: Sequence[trimesh.Trimesh],
     base: trimesh.Trimesh,
+    *,
+    base_thickness_m: float | None = None,
 ) -> FusedCity:
     """Boolean-union every building shell with the solid base."""
 
@@ -188,7 +191,12 @@ def fuse_city(
             float(bounds[1, 0]),
             float(bounds[1, 1]),
         ),
-        base_thickness_m=float(base.extents[2]),
+        base_thickness_m=(
+            float(base_thickness_m)
+            if base_thickness_m is not None
+            else float(base.extents[2])
+        ),
+        base_mesh=base,
         engine=MANIFOLD_ENGINE,
         weld_repairs=len(welds),
     )

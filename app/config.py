@@ -24,14 +24,19 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "CityGenerator"
-    version: str = "1.0.0"
+    version: str = "2.0.0"
 
     data_dir: Path = DEFAULT_DATA_DIR
     max_workers: int = 2
 
-    # Request guards.
-    max_area_km2: float = 4.0
+    # Request guards. A selection may span several Overpass chunks; each chunk
+    # is at most `overpass_chunk_area_km2`, fetched and cached separately, then
+    # merged, so a busy public Overpass never sees one huge query.
+    # 17 km² keeps an exact 4 x 4 km selection (16.005 km² on the ellipsoid)
+    # comfortably inside the cap.
+    max_area_km2: float = 17.0
     max_buildings: int = 20_000
+    overpass_chunk_area_km2: float = 4.0
 
     # Overpass.
     overpass_endpoints: str = (
@@ -55,6 +60,20 @@ class Settings(BaseSettings):
     simplify_m: float = 0.05
     min_building_area_m2: float = 4.0
     ground_slab_thickness_m: float = 1.0
+
+    # Terrain / DEM elevation source.
+    terrain_enabled_default: bool = True
+    terrain_resolution_m: float = 30.0
+    max_terrain_cells: int = 80_000
+    dem_url_template: str = (
+        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+    )
+    dem_zoom_min: int = 10
+    dem_zoom_max: int = 14
+    dem_max_tiles: int = 24
+    dem_timeout_s: float = 20.0
+    dem_max_retries: int = 3
+    dem_user_agent: str = "CityGenerator/2.0 (local research tool)"
 
     @property
     def endpoints(self) -> list[str]:

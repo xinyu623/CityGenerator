@@ -23,6 +23,7 @@ const STAGE_LABELS = {
   parsing: "解析建筑轮廓",
   projecting: "投影到米制坐标",
   building: "挤出建筑",
+  terrain: "获取地形起伏",
   ground: "生成实体底座",
   fusing: "融合建筑与地面",
   exporting: "写出 STL 与元数据",
@@ -121,6 +122,17 @@ function applyConfig(config) {
   if (Number.isFinite(defaults.min_building_area_m2)) {
     $("minArea").value = defaults.min_building_area_m2;
   }
+  const terrain = defaults.terrain || {};
+  if (typeof terrain.enabled === "boolean") {
+    $("terrainEnabled").checked = terrain.enabled;
+  }
+  if (Number.isFinite(terrain.resolution_m)) {
+    $("terrainResolution").value = terrain.resolution_m;
+  }
+  if (config.terrain_attribution) {
+    setText("terrainAttribution", config.terrain_attribution);
+  }
+  syncTerrainControls();
 }
 
 function numberValue(id, fallback) {
@@ -136,6 +148,10 @@ function readOptions() {
     ground_margin_m: numberValue("groundMargin", 0),
     simplify_m: numberValue("simplify", 0.05),
     min_building_area_m2: numberValue("minArea", 4),
+    terrain: {
+      enabled: $("terrainEnabled").checked,
+      resolution_m: numberValue("terrainResolution", 30),
+    },
   };
 }
 
@@ -264,6 +280,10 @@ function renderResult(job) {
   addStat("建筑", formatInt(stats.buildings));
   addStat("三角形", formatInt(stats.triangles));
   addStat("选择面积", `${Number(stats.area_km2 || 0).toFixed(3)} km²`);
+  addStat(
+    "地形起伏",
+    stats.terrain_enabled ? `${Number(stats.terrain_relief_m || 0).toFixed(1)} m` : "关闭"
+  );
   addStat("高度来源", `${formatInt(sources.tag)} / ${formatInt(sources.levels)} / ${formatInt(sources.default)}`);
   addStat("跳过", formatInt(stats.skipped));
   addStat("重叠", formatInt(stats.overlaps));
@@ -307,8 +327,12 @@ function handleFinished(job) {
   }
   const error = job.error || {};
   const detail = error.detail ? `（${error.detail}）` : "";
+  const terrainHint =
+    error.code === "TERRAIN_FETCH_FAILED" || error.code === "TERRAIN_DATA_MISSING"
+      ? " 可在“建模参数”中关闭“地形起伏”后重试。"
+      : "";
   showStatus(job.progress || 0, "failed", "生成失败");
-  showError(`${error.message || job.message || "生成失败"}${detail}`);
+  showError(`${error.message || job.message || "生成失败"}${detail}${terrainHint}`);
 }
 
 async function generate() {
@@ -368,11 +392,23 @@ function preview() {
     return;
   }
   const stats = state.job.stats || {};
+  const terrain = stats.terrain_enabled
+    ? ` · 地形起伏 ${Number(stats.terrain_relief_m || 0).toFixed(1)} m`
+    : "";
   openViewer({
     urls: [{ url: `/api/jobs/${state.job.id}/preview.stl`, kind: "city" }],
     title: "CityGenerator · 城市实体预览",
-    meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形`,
+    meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形${terrain}`,
   });
+}
+
+function syncTerrainControls() {
+  const enabled = $("terrainEnabled").checked;
+  $("terrainResolution").disabled = !enabled;
+  const note = $("terrainResolutionNote");
+  if (note) {
+    note.textContent = enabled ? "z = 0 为范围最低点" : "地形已关闭，使用平整底座";
+  }
 }
 
 function bindEvents() {
@@ -396,6 +432,8 @@ function bindEvents() {
   $("generateBtn").addEventListener("click", generate);
   $("cancelBtn").addEventListener("click", cancel);
   $("previewBtn").addEventListener("click", preview);
+  $("terrainEnabled").addEventListener("change", syncTerrainControls);
+  syncTerrainControls();
 
   $("viewerClose").addEventListener("click", closeViewer);
   $("viewerModal").addEventListener("click", (event) => {

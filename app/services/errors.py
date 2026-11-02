@@ -32,6 +32,14 @@ class CityUnionError(CityGeneratorError):
     code = "CITY_UNION_FAILED"
 
 
+class TerrainError(CityGeneratorError):
+    code = "TERRAIN_FETCH_FAILED"
+
+
+class TerrainDataError(CityGeneratorError):
+    code = "TERRAIN_DATA_MISSING"
+
+
 class JobCancelled(CityGeneratorError):
     code = "JOB_CANCELLED"
 

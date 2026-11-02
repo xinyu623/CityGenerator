@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "citygenerator"
-version = "1.0.0"
+version = "2.0.0"
 description = "Generate CFD-ready STL models from OpenStreetMap building footprints."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ dependencies = [
   "manifold3d>=3.5",
   "mapbox-earcut>=1.0",
   "osm2geojson>=0.2.9,<0.4",
+  "pillow>=10",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
 ]

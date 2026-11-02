@@ -5,7 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from app.config import Settings
-from app.models.schemas import ConfigResponse, GenerateOptions, HealthResponse
+from app.models.schemas import (
+    ConfigResponse,
+    GenerateOptions,
+    HealthResponse,
+    TerrainOptions,
+)
 
 router = APIRouter(tags=["meta"])
 
@@ -29,6 +34,10 @@ def config(request: Request) -> ConfigResponse:
         embed_depth_m=settings.embed_depth_m,
         simplify_m=settings.simplify_m,
         min_building_area_m2=settings.min_building_area_m2,
+        terrain=TerrainOptions(
+            enabled=settings.terrain_enabled_default,
+            resolution_m=settings.terrain_resolution_m,
+        ),
     )
     return ConfigResponse(
         app_name=settings.app_name,
@@ -37,5 +46,6 @@ def config(request: Request) -> ConfigResponse:
         max_buildings=settings.max_buildings,
         defaults=defaults,
         attribution="© OpenStreetMap contributors",
+        terrain_attribution="地形：AWS Terrain Tiles（Mapzen / Amazon，SRTM 派生）",
         osm_tile_url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     )

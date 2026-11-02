@@ -23,8 +23,9 @@ from app.services.stl_export import (
     load_stl_bytes,
     non_manifold_edge_count,
 )
+from app.services.terrain import TerrainGrid
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
 
 
 @dataclass
@@ -53,9 +54,13 @@ def _build_metadata(
     city: FusedCity,
     settings: Settings,
     warnings: list[WarningItem],
+    terrain: TerrainGrid | None = None,
 ) -> dict[str, Any]:
     origin_lon, origin_lat = projector.origin_wgs84()
     heights = [record.height_m for record in build_result.records]
+    z_reference = (
+        "lowest terrain cell in the selection" if terrain is not None else "ground plane at z=0"
+    )
     metadata: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "generator": {"name": settings.app_name, "version": settings.version},
@@ -67,6 +72,7 @@ def _build_metadata(
             "y": "north",
             "z": "up",
             "unit": "m",
+            "z_reference": z_reference,
             "origin": {
                 "easting": round(projector.origin_easting, 3),
                 "northing": round(projector.origin_northing, 3),
@@ -96,11 +102,13 @@ def _build_metadata(
         },
         "ground": {
             "included": True,
-            "mode": "slab",
+            "mode": "terrain" if terrain is not None else "slab",
+            "surface": terrain.meta.get("source", "dem") if terrain is not None else "flat",
             "z": 0.0,
             "thickness_m": city.base_thickness_m,
             "bounds_local": list(city.base_bounds),
         },
+        "terrain": _terrain_metadata(build_result, terrain),
         "city": {
             "triangle_count": len(city.mesh.faces),
             "watertight": bool(city.mesh.is_watertight),
@@ -108,6 +116,7 @@ def _build_metadata(
             "volume_m3": round(float(city.mesh.volume), 3),
             "non_manifold_edges": non_manifold_edges,
             "base_thickness_m": city.base_thickness_m,
+            "terrain_triangle_count": terrain.triangle_count if terrain is not None else 0,
             "union_engine": city.engine,
             "weld_repairs": city.weld_repairs,
         },
@@ -120,6 +129,7 @@ def _build_metadata(
             "query_version": overpass_meta.get("query_version", ""),
             "fetched_at": overpass_meta.get("fetched_at", ""),
             "osm_base_timestamp": overpass_meta.get("osm_base_timestamp", ""),
+            "overpass_chunks": int(overpass_meta.get("chunks", 1)),
         },
         "options": request.options.model_dump(),
         "request": request.model_dump(exclude={"request"}),
@@ -127,6 +137,24 @@ def _build_metadata(
         "files": [],
     }
     return metadata
+
+
+def _terrain_metadata(
+    build_result: BuildResult, terrain: TerrainGrid | None
+) -> dict[str, Any]:
+    if terrain is None:
+        return {"enabled": False}
+    reliefs = [record.footprint_relief_m for record in build_result.records]
+    described = terrain.describe()
+    described.update(
+        {
+            "enabled": True,
+            "max_footprint_relief_m": round(max(reliefs), 3) if reliefs else 0.0,
+            "building_base_strategy": "min over the footprint's covering cells",
+            "attribution": "AWS Terrain Tiles (Mapzen / Amazon, SRTM derived)",
+        }
+    )
+    return described
 
 
 def _geojson(build_result: BuildResult) -> dict[str, Any]:
@@ -143,6 +171,9 @@ def _geojson(build_result: BuildResult) -> dict[str, Any]:
                     "base_m": round(record.base_m, 3),
                     "height_source": record.height_source,
                     "area_m2": round(record.area_m2, 3),
+                    "ground_m": round(record.ground_m, 3),
+                    "roof_m": round(record.ground_m + record.height_m, 3),
+                    "footprint_relief_m": round(record.footprint_relief_m, 3),
                     "tags": _selected_tags(record.tags),
                 },
             }
@@ -154,6 +185,7 @@ def _readme_text(metadata: dict[str, Any]) -> str:
     origin = metadata["local_frame"]["origin"]
     city = metadata["city"]
     warnings = metadata.get("warnings") or []
+    terrain_block, ground_note = _terrain_readme(metadata)
     warning_lines = "\n".join(f"- [{item['code']}] {item['message']}" for item in warnings)
     if not warning_lines:
         warning_lines = "- None"
@@ -178,11 +210,11 @@ README.txt      This file.
 
 There are no separate buildings.stl or ground.stl files in this output.
 
+{terrain_block}
 CFD notes
 ---------
 1. city.stl is one closed surface with no building/ground patch labels.
-2. The ground base occupies z=-{city["base_thickness_m"]} to z=0; buildings
-   extend below z=0 by {metadata["buildings"]["embed_depth_m"]} m before fusing.
+2. {ground_note}
 3. Build the fluid domain and volume mesh in your solver; this tool does not
    generate a volume mesh or solver case.
 4. The model uses metres and +Z up. Check the scale and wind direction before
@@ -199,13 +231,51 @@ Warnings
 """
 
 
+def _terrain_readme(metadata: dict[str, Any]) -> tuple[str, str]:
+    """Return the terrain section and the ground note for README.txt."""
+
+    terrain = metadata.get("terrain") or {}
+    thickness = metadata["city"]["base_thickness_m"]
+    embed = metadata["buildings"]["embed_depth_m"]
+    if not terrain.get("enabled"):
+        note = (
+            f"The flat ground base occupies z=-{thickness} to z=0; buildings extend "
+            f"below z=0 by {embed} m before fusing."
+        )
+        return "", note
+
+    relief = terrain.get("relief_m", 0.0)
+    datum = terrain.get("datum_offset_m", 0.0)
+    resolution = terrain.get("resolution_m", 0.0)
+    section = (
+        "Terrain\n"
+        "-------\n"
+        f"Source: {terrain.get('attribution', 'AWS Terrain Tiles')}\n"
+        f"Grid: {resolution} m, relief {relief} m, DEM zoom {terrain.get('zoom')} "
+        f"({terrain.get('pixel_m')} m/px)\n"
+        f"z=0 is the lowest terrain cell in the selection; add {datum} m to restore\n"
+        "absolute elevations from the source DEM.\n"
+        "Each building sits on the lowest terrain cell under its footprint and is\n"
+        f"embedded {embed} m below that height before the union.\n"
+        "\n"
+    )
+    note = (
+        f"The terrain solid occupies z=-{thickness} to z={relief}; buildings are "
+        f"embedded {embed} m below the local terrain before fusing."
+    )
+    return section, note
+
+
 def _preview_mesh(build_result: BuildResult, city: FusedCity) -> trimesh.Trimesh:
     """Build a clean display-only mesh without boolean contact patches."""
 
-    xmin, ymin, xmax, ymax = city.base_bounds
-    thickness = city.base_thickness_m
-    base = box(extents=(xmax - xmin, ymax - ymin, thickness))
-    base.apply_translation(((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, -thickness / 2.0))
+    if city.base_mesh is not None:
+        base = city.base_mesh
+    else:  # pragma: no cover - defensive fallback for hand-built FusedCity values
+        xmin, ymin, xmax, ymax = city.base_bounds
+        thickness = city.base_thickness_m
+        base = box(extents=(xmax - xmin, ymax - ymin, thickness))
+        base.apply_translation(((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, -thickness / 2.0))
     return trimesh.util.concatenate([*build_result.meshes, base])
 
 
@@ -221,6 +291,7 @@ def write_outputs(
     city: FusedCity,
     settings: Settings,
     warnings: list[WarningItem],
+    terrain: TerrainGrid | None = None,
 ) -> OutputBundle:
     output_dir = job_dir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -255,6 +326,7 @@ def write_outputs(
         city=city,
         settings=settings,
         warnings=warnings,
+        terrain=terrain,
     )
     metadata["files"] = names + ["metadata.json", "buildings.geojson", "README.txt"]
 

@@ -28,6 +28,13 @@ class BBox(BaseModel):
         return f"{self.south:.6f},{self.west:.6f},{self.north:.6f},{self.east:.6f}"
 
 
+class TerrainOptions(BaseModel):
+    """Terrain relief (DEM) generation options."""
+
+    enabled: bool = True
+    resolution_m: float = Field(default=30.0, ge=5.0, le=50.0)
+
+
 class GenerateOptions(BaseModel):
     default_height_m: float = Field(default=25.0, ge=2.0, le=300.0)
     level_height_m: float = Field(default=3.0, ge=2.0, le=10.0)
@@ -35,6 +42,7 @@ class GenerateOptions(BaseModel):
     ground_margin_m: float = Field(default=0.0, ge=0.0, le=500.0)
     simplify_m: float = Field(default=0.05, ge=0.0, le=2.0)
     min_building_area_m2: float = Field(default=4.0, ge=1.0, le=1000.0)
+    terrain: TerrainOptions = Field(default_factory=TerrainOptions)
 
 
 class GenerateRequest(BaseModel):
@@ -89,6 +97,7 @@ class ConfigResponse(BaseModel):
     max_buildings: int
     defaults: GenerateOptions
     attribution: str
+    terrain_attribution: str = ""
     osm_tile_url: str
 
 

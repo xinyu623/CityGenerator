@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from app.config import Settings
 from app.models.schemas import GenerateRequest, JobStatus
+from app.services.dem import purge_tile_cache
 from app.services.errors import (
     CityGeneratorError,
     JobBusyError,
@@ -323,6 +324,7 @@ class JobManager:
                         path.unlink()
                     except OSError:
                         pass
+        purge_tile_cache(self.settings, self.settings.cache_ttl_days)
 
     def shutdown(self) -> None:
         with self._lock:

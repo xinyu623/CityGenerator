@@ -25,9 +25,19 @@ parser keeps polygon geometries and skips relation member ways so the same
 footprint is not emitted twice. `building=no`, `construction`, and `proposed`
 are ignored.
 
+A selection bigger than `overpass_chunk_area_km2` (4 km² by default) runs the
+same query once per grid cell of at most 2 km per side; the results are merged
+and duplicate elements (ways crossing a cell border) are dropped. The merged
+extent and geometry are the same as one big query, but no single request is
+large enough to time out on a busy public server.
+
+Elevations are a second external input: AWS Terrain Tiles (Terrarium), decoded
+from 8-bit RGB PNG as `m = R*256 + G + B/256 - 32768`, resampled onto a local
+grid and median-smoothed. See section 6.
+
 OSM footprints are 2D and often approximate. They do not contain roof shape or
-terrain. The generated model is therefore a set of vertical prisms, which is the
-usual first-order geometry for urban wind CFD.
+terrain. The generated model is therefore a set of vertical prisms on a DEM
+surface, which is the usual first-order geometry for urban wind CFD.
 
 ## 2. Projection and local frame
 
@@ -46,7 +56,7 @@ coordinates of the bbox south-west corner:
 ```text
 x_local = easting  - easting_origin
 y_local = northing - northing_origin
-z_local = height above the local ground plane
+z_local = height above the local datum (z=0)
 ```
 
 The result is a right-handed frame:
@@ -55,6 +65,10 @@ The result is a right-handed frame:
 - `+Y` north,
 - `+Z` up,
 - 1 unit = 1 metre.
+
+`z = 0` is the lowest terrain cell of the selection, or the flat ground plane
+when terrain is disabled. `metadata.json → terrain.datum_offset_m` converts back
+to absolute DEM elevations.
 
 The STL is written in this Z-up frame. The Three.js preview rotates it to Y-up
 only for display. `metadata.json` stores the origin's easting/northing and
@@ -87,9 +101,14 @@ h_extrude = max(height - base, 0) + embed_depth   if base <= 0
 h_extrude = max(height - base, 0)                 if base > 0
 ```
 
-The `embed_depth` (0.5 m by default) extends the shell below `z=0` so the
-building side walls do not share a coplanar face with the ground patch. This
-avoids a common meshing failure at the wall/ground intersection.
+The `embed_depth` (0.5 m by default) extends the shell below the local ground so
+the building side walls do not share a coplanar face with the terrain surface.
+This avoids a common meshing failure at the wall/ground intersection.
+
+With terrain, the "local ground" is `min_over(footprint)`: the lowest sampled
+terrain height under the footprint. The whole shell is translated there, so the
+base sinks into the hill and the union cuts the building at the real surface.
+A footprint spanning more than 3 m of relief gets a `STEEP_FOOTPRINT` warning.
 
 ## 4. Footprint cleanup
 
@@ -134,13 +153,18 @@ input shell passed its individual checks, not that the final city is watertight.
 
 ## 6. Ground and city fusion
 
-The ground is always a closed 1 m slab (configurable via
-`CITYGEN_GROUND_SLAB_THICKNESS_M`) from `-thickness` to `0`. It covers the union
-of the selected bbox and all building footprints, expanded by `ground_margin_m`.
-There is no open plane mode and no option to omit the ground: the output contract
-is one closed city.
+The ground is always a closed solid of thickness `CITYGEN_GROUND_SLAB_THICKNESS_M`
+(1 m by default) from `-thickness` up to the surface. It covers the union of the
+selected bbox and all building footprints, expanded by `ground_margin_m`. There
+is no open plane mode and no option to omit the ground: the output contract is
+one closed city.
 
-`fuse_city` boolean-unions the building shells and the slab with Manifold and
+With terrain enabled (default), the top of that solid is a DEM height field
+sampled on a local grid (30 m by default) and smoothed with a ~150 m running
+median, built as a closed block (DEM top, vertical skirt, flat bottom). With
+terrain disabled it is a flat slab at `z=0`.
+
+`fuse_city` boolean-unions the building shells and the base with Manifold and
 validates the result. If two buildings touch only at an edge or corner, their
 volumes have no common interior; the union has an edge shared by four faces and
 cannot be a manifold surface. The repair pass:
@@ -153,7 +177,8 @@ cannot be a manifold surface. The repair pass:
 
 The written STL is then loaded again and checked. `metadata.json → city` records
 `triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
-`non_manifold_edges`, `base_thickness_m`, `union_engine`, and `weld_repairs`.
+`non_manifold_edges`, `base_thickness_m`, `terrain_triangle_count`,
+`union_engine`, and `weld_repairs`.
 If the final file is not closed, the job fails with `CITY_UNION_FAILED` rather
 than writing a concatenated triangle soup.
 
@@ -188,13 +213,15 @@ do not assume the solver's default unit is metres.
 4. **Domain.** Create a fluid domain with an inlet, outlet, sides, and top.
    Recommended initial distances: 5H upstream, 10–15H downstream, 5H sides,
    5H top, where H is the tallest building (tune for your study).
-5. **Ground.** The ground slab is part of the solid; its bottom is a valid closed
-   boundary at `-1 m` by default, and the top is at `z=0`.
+5. **Ground.** The ground is part of the solid; its bottom is a valid closed
+   boundary at `-1 m` by default. Without terrain the top is at `z=0`; with
+   terrain the surface follows the DEM and `z=0` is the lowest terrain cell.
+   Buildings on slopes are cut by the hill.
 6. **Contacts.** Check `OVERLAP_DETECTED` and `city.weld_repairs` in the UI or
    `metadata.json`. Touching footprints are already fused; the weld count tells
    you whether local contact repairs were necessary.
-7. **Heights.** Check `MISSING_HEIGHT` and `HEIGHT_CLAMPED`. A default height of
-   25 m is a placeholder, not a surveyed value.
+7. **Heights.** Check `MISSING_HEIGHT`, `HEIGHT_CLAMPED`, and `STEEP_FOOTPRINT`.
+   A default height of 25 m is a placeholder, not a surveyed value.
 8. **Wind direction.** The local axes are east/north. Rotate the model or the
    domain to align the inlet with the study's prevailing wind.
 9. **Mesh.** This tool stops at surface STL. Volume meshing, boundary layers,
@@ -202,7 +229,9 @@ do not assume the solver's default unit is metres.
 
 ## 9. Known limitations
 
-- No terrain, buildings on slopes, bridges, or overhangs.
+- Terrain is a 30 m grid resampled from ~30 m DEM data and median-smoothed at
+  ~150 m: no cliffs, buildings, vegetation, or carved streams.
+- No bridges or overhangs; buildings on steep slopes are cut by the hill.
 - No pitched/flat roof distinction; every building is a vertical prism.
 - No `building:part` or roof detail.
 - No roads, trees, or porous vegetation.
@@ -210,9 +239,9 @@ do not assume the solver's default unit is metres.
   shared architectural walls.
 - OSM height tags are sparse and sometimes wrong.
 - Public Overpass endpoints can be slow or rate-limited; the cache helps after
-  the first request.
+  the first request. DEM tiles are cached the same way.
 - `city.stl` is a validated closed surface, but it is not a volume mesh or a
   complete fluid-domain boundary; you still build the outer domain.
 
-These limitations are deliberate for v1: the goal is a transparent, inspectable
+These limitations are deliberate: the goal is a transparent, inspectable
 geometry pipeline with provenance and warnings, not a black-box city model.

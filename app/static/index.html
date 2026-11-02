@@ -31,7 +31,7 @@
       <div class="topbar-meta">
         <span class="pill">室外风环境</span>
         <span class="pill">米制 · Z 向上</span>
-        <span class="pill subtle" id="versionPill">v0.1.0</span>
+        <span class="pill subtle" id="versionPill">v2.0.0</span>
       </div>
     </header>
 
@@ -124,8 +124,26 @@
               </div>
             </div>
 
+            <label class="check-row">
+              <input id="terrainEnabled" type="checkbox" checked />
+              <span>地形起伏（DEM 高程）</span>
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>地形网格 <em>m</em></span>
+                <input id="terrainResolution" type="number" min="5" max="50" step="1" value="30" />
+              </label>
+              <div class="field-note">
+                <span>垂向基准</span>
+                <strong id="terrainResolutionNote">z = 0 为范围最低点</strong>
+              </div>
+            </div>
+
             <p class="fine-print">
-              建筑与 1 m 厚实体地面会融合为一个水密表面；不再分别导出建筑和地面 STL。
+              建筑与实体地面会融合为一个水密表面；开启地形后，楼体会落在各自轮廓范围内的
+              地形最低点上，不再分别导出建筑和地面 STL。DEM 是约 30 m 的地表模型，程序会
+              按约 150 m 做中值平滑，去掉建筑和树冠造成的假起伏。
             </p>
 
             <details class="advanced">
@@ -203,6 +221,10 @@
           <h3>输出约定</h3>
           <ul>
             <li><strong>city.stl</strong>：建筑 + 1 m 实体地面融合后的单一密闭表面。</li>
+            <li>
+              开启地形时，地面是 DEM 网格拼成的闭合实体；<code>z = 0</code> 为所选范围的最低地形点，
+              绝对高程见 <code>metadata.json</code> 的 <code>terrain</code>。
+            </li>
             <li>不再输出独立的建筑或地面 STL；需要分 patch 时请在前处理软件中处理。</li>
             <li>坐标：+X 东、+Y 北、Z 向上；原点记录在 <code>metadata.json</code>。</li>
           </ul>
@@ -212,6 +234,7 @@
 
     <footer class="footer">
       <span>© OpenStreetMap contributors · ODbL 1.0</span>
+      <span id="terrainAttribution">地形：AWS Terrain Tiles</span>
       <span>本地计算 · 不上传模型</span>
     </footer>
 

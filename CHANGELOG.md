@@ -2,6 +2,90 @@
 
 All notable changes to CityGenerator are recorded here.
 
+## [2.0.0] - 2026-11-02
+
+Terrain relief. The city now sits on a real DEM surface instead of a flat slab,
+still fused into one watertight `city.stl`.
+
+### Terrain
+
+- New `terrain` block in the request options:
+  `{"enabled": true, "resolution_m": 30.0}`. Terrain is **on by default**.
+- Large selections are downloaded in Overpass chunks: anything above
+  `CITYGEN_OVERPASS_CHUNK_AREA_KM2` (`4 km²`, so at most 2 km per side) is split
+  into a grid of cells, fetched and cached individually, then merged with
+  duplicate OSM elements removed. The default selection cap rises from `4 km²`
+  to `17 km²` (an exact 4 × 4 km box is 16.005 km²); `AREA_TOO_LARGE` still
+  rejects anything above `CITYGEN_MAX_AREA_KM2`. A failed cell fails the job
+  instead of silently dropping buildings.
+- Elevations come from the AWS Terrain Tiles (Terrarium) open dataset, decoded
+  from 8-bit RGB PNG and resampled onto a local grid (`5–50 m` spacing, capped
+  by `CITYGEN_MAX_TERRAIN_CELLS`).
+- The sampled field is median-smoothed over ~150 m (`metadata.json →
+  terrain.smoothing_m` / `terrain.filter`). The source is a surface model with
+  building and canopy bias, and single bad cells otherwise grow into 100 m-wide
+  domes that do not exist on the ground. The default spacing is 30 m, the native
+  resolution of the data, which also cuts terrain triangles by roughly 8×
+  compared with the first 10 m implementation.
+- Tiles are cached under `data/cache/dem/` and pruned with the same TTL as the
+  OSM cache.
+- The terrain block is a closed solid: DEM top, vertical skirt, flat bottom at
+  `-ground_slab_thickness_m`, so `city.stl` stays watertight with zero
+  non-manifold edges. The skirt is one vertical quad per border segment, so it
+  follows the border profile exactly. A single corner fan used to bridge dips in
+  the border and left a zero-thickness wall hanging above the low ground (up to
+  the selection relief), visible as a raised rim around low terrain and a
+  zero-thickness obstacle for the solver.
+- `z = 0` is the lowest terrain cell in the selection.
+  `metadata.json → terrain.datum_offset_m` restores absolute elevations.
+- Each building sits on `min_over(footprint)` and is embedded `0.5 m` below it;
+  slopes cut the building at the natural ground line. Footprints spanning more
+  than `3 m` of relief raise `STEEP_FOOTPRINT`.
+- New warnings: `TERRAIN_RESOLUTION_REDUCED`, `TERRAIN_RESOLUTION_LIMITED`,
+  `TERRAIN_ZOOM_REDUCED`, `TERRAIN_NODATA_FILLED`, `TERRAIN_FLAT_RELIEF`,
+  `STEEP_FOOTPRINT`.
+- New errors: `TERRAIN_FETCH_FAILED` (tiles unavailable after retries) and
+  `TERRAIN_DATA_MISSING` (no usable elevation). A DEM failure never silently
+  becomes a flat site; disable terrain to generate anyway.
+- Setting `terrain.enabled: false` reproduces the flat v1 output.
+
+### Output contract
+
+- Metadata schema version is now `2.0`. New `terrain` block, `ground.mode`
+  (`terrain` / `slab`) and `ground.surface`, `city.terrain_triangle_count`, and
+  `local_frame.z_reference`.
+- `buildings.geojson` features gain `ground_m`, `roof_m`, and
+  `footprint_relief_m`.
+- `README.txt` gains a terrain section with source, grid, relief, and datum.
+- The preview mesh uses the same base as the export (terrain block when
+  enabled).
+- No new output files: still exactly one `city.stl`.
+
+### API and UI
+
+- `GET /api/config` returns `defaults.terrain` and `terrain_attribution`.
+- New `terrain` progress stage; `building` now appears before and after it.
+- The `fetching` stage reports per-chunk progress (`已下载 n/N 个 OSM 分块`), so a
+  large selection no longer sits at 4 % while several requests run.
+- `metadata.json → source.overpass_chunks` records how many Overpass requests a
+  job needed.
+- The UI exposes a terrain toggle and resolution field (default `30 m`), shows
+  the selection's terrain relief in the result stats, and hints that terrain can
+  be disabled when a DEM request fails.
+
+### Dependencies and internals
+
+- Added `pillow>=10` for PNG decoding.
+- Building work is split into `prepare_buildings` + `extrude_prepared`;
+  `build_meshes` remains as a flat-ground wrapper.
+- `fuse_city(..., base_thickness_m=...)` keeps a `base_mesh` for previews.
+- New tests: terrain sampling/solid/placement (`tests/test_terrain.py`), including
+  that a single bad DEM cell is suppressed by the smoothing, DEM
+  decoding/caching/zoom/errors (`tests/test_dem.py`), Overpass chunking, merge
+  de-duplication, per-chunk caching, chunk progress and chunk failure policy
+  (`tests/test_overpass.py`), optional live DEM smoke test
+  (`tests/test_live_dem.py`, marked `network`).
+
 ## [1.0.0] - 2026-10-30
 
 First frozen release.

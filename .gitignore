@@ -13,4 +13,5 @@ node_modules/
 Thumbs.db
 .agents/
 artifacts/
+scratch/
 .tmp-playwright/

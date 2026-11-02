@@ -34,6 +34,20 @@ def test_health_and_config(client):
     assert payload["max_area_km2"] > 0
     assert payload["attribution"].startswith("© OpenStreetMap")
     assert payload["defaults"]["default_height_m"] == 25.0
+    assert payload["defaults"]["terrain"]["enabled"] is True
+    assert payload["defaults"]["terrain"]["resolution_m"] > 0
+    assert "Terrain" in payload["terrain_attribution"] or "地形" in payload["terrain_attribution"]
+
+
+def test_invalid_terrain_options_are_rejected(client):
+    response = client.post(
+        "/api/jobs",
+        json={
+            "bbox": BBOX,
+            "options": {"terrain": {"enabled": True, "resolution_m": 0.5}},
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_invalid_bbox_is_rejected(client):
@@ -48,10 +62,11 @@ def test_missing_job_returns_404(client):
     assert client.get("/api/jobs/does-not-exist").status_code == 404
 
 
-def test_job_lifecycle_and_download(client, monkeypatch):
+def test_job_lifecycle_and_download(client, monkeypatch, synthetic_terrain):
+    assert synthetic_terrain is not None
     from app.services.overpass import OverpassResult
 
-    def fake_fetch(self, bbox, *, refresh=False):
+    def fake_fetch(self, bbox, *, refresh=False, progress_cb=None):
         return OverpassResult(
             raw=RAW,
             meta={
@@ -134,7 +149,7 @@ def test_cancel_running_job(client, monkeypatch):
 def test_area_too_large_is_a_job_error(tmp_path, monkeypatch):
     from app.services.overpass import OverpassResult
 
-    def fake_fetch(self, bbox, *, refresh=False):
+    def fake_fetch(self, bbox, *, refresh=False, progress_cb=None):
         return OverpassResult(raw=RAW, meta={}, from_cache=False)
 
     monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", fake_fetch)

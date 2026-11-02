@@ -1,8 +1,16 @@
-"""Overpass API client with disk cache, throttling, and retries."""
+"""Overpass API client with disk cache, throttling, chunking, and retries.
+
+Selections larger than ``overpass_chunk_area_km2`` are fetched as a grid of
+smaller requests (at most ``sqrt(area)`` km per side), cached per cell, and
+merged with duplicate elements removed. That keeps any single request small
+enough for a busy public endpoint while preserving the exact footprint set of
+one big query.
+"""
 
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -28,6 +36,72 @@ logger = logging.getLogger(__name__)
 QUERY_VERSION = "buildings-v1"
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 _BACKOFF_SECONDS = (2.0, 5.0, 10.0)
+_M_PER_DEG_LAT = 110_900.0
+_M_PER_DEG_LON_EQUATOR = 111_320.0
+
+
+def chunk_bboxes(bbox: BBox, max_chunk_area_km2: float) -> list[BBox]:
+    """Split ``bbox`` into a grid of cells no larger than ``max_chunk_area_km2``.
+
+    Overpass cost grows with the queried extent and a single large request can
+    time out on a busy public server. Every cell is at most
+    ``sqrt(max_chunk_area_km2)`` kilometres on a side, so a big selection becomes
+    several small requests that are cached individually and merged afterwards.
+    """
+
+    limit = float(max_chunk_area_km2)
+    if not math.isfinite(limit) or limit <= 0.0:
+        return [bbox]
+
+    side_m = math.sqrt(limit) * 1000.0
+    mid_lat = (bbox.south + bbox.north) / 2.0
+    height_m = (bbox.north - bbox.south) * _M_PER_DEG_LAT
+    width_m = (
+        (bbox.east - bbox.west)
+        * _M_PER_DEG_LON_EQUATOR
+        * max(math.cos(math.radians(mid_lat)), 0.01)
+    )
+    # A hair over the limit is expected from the metre/degree conversion; do not
+    # let that turn a 2x2 split into a wasteful 3x3 one.
+    n_lat = max(1, int(math.ceil(height_m / side_m - 1e-3)))
+    n_lon = max(1, int(math.ceil(width_m / side_m - 1e-3)))
+    if n_lat == 1 and n_lon == 1:
+        return [bbox]
+
+    lat_step = (bbox.north - bbox.south) / n_lat
+    lon_step = (bbox.east - bbox.west) / n_lon
+    if lat_step <= 0.0 or lon_step <= 0.0:
+        return [bbox]
+
+    cells: list[BBox] = []
+    for i in range(n_lat):
+        south = bbox.south + lat_step * i
+        north = bbox.north if i == n_lat - 1 else bbox.south + lat_step * (i + 1)
+        for j in range(n_lon):
+            west = bbox.west + lon_step * j
+            east = bbox.east if j == n_lon - 1 else bbox.west + lon_step * (j + 1)
+            cells.append(BBox(south=south, west=west, north=north, east=east))
+    return cells
+
+
+def _merge_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge Overpass payloads, dropping elements returned by several chunks."""
+
+    seen: set[tuple[str, Any]] = set()
+    elements: list[dict[str, Any]] = []
+    for payload in payloads:
+        for element in payload.get("elements") or []:
+            key = (str(element.get("type")), element.get("id"))
+            if key in seen:
+                continue
+            seen.add(key)
+            elements.append(element)
+    first = payloads[0] if payloads else {}
+    return {
+        "version": first.get("version", 0.6),
+        "generator": first.get("generator", "Overpass API"),
+        "elements": elements,
+    }
 
 
 @dataclass
@@ -144,12 +218,8 @@ class OverpassClient:
             raise OverpassError("Overpass 返回缺少 elements 字段")
         return payload
 
-    def fetch(self, bbox: BBox, *, refresh: bool = False) -> OverpassResult:
-        if not refresh:
-            cached = self._load_cache(bbox)
-            if cached is not None:
-                logger.info("Overpass cache hit for %s", bbox.as_overpass())
-                return cached
+    def _request(self, bbox: BBox) -> tuple[dict[str, Any], str]:
+        """Fetch one bbox, trying every endpoint and retry; return (raw, endpoint)."""
 
         query = self.build_query(bbox)
         endpoints = self.settings.endpoints
@@ -183,25 +253,93 @@ class OverpassClient:
                     delay = _BACKOFF_SECONDS[min(attempt, len(_BACKOFF_SECONDS) - 1)]
                     self._sleep(delay)
                     continue
-
-                meta = {
-                    "query_version": QUERY_VERSION,
-                    "query_hash": sha256_text(f"{QUERY_VERSION}|{bbox.as_overpass()}"),
-                    "bbox": bbox.model_dump(),
-                    "endpoint": endpoint,
-                    "fetched_at": utc_now_iso(),
-                    "osm_base_timestamp": str(
-                        (raw.get("osm3s") or {}).get("timestamp_osm_base", "")
-                    ),
-                }
-                self._save_cache(bbox, raw, meta)
-                return OverpassResult(raw=raw, meta=meta, from_cache=False)
+                return raw, endpoint
 
         detail = str(last_error) if last_error else None
         raise OverpassError(
             "无法从 Overpass 获取数据，请稍后重试或更换端点",
             detail,
         ) from last_error
+
+    def _meta(
+        self,
+        bbox: BBox,
+        endpoint: str,
+        raw: dict[str, Any],
+        *,
+        chunks: int = 1,
+    ) -> dict[str, Any]:
+        meta = {
+            "query_version": QUERY_VERSION,
+            "query_hash": sha256_text(f"{QUERY_VERSION}|{bbox.as_overpass()}"),
+            "bbox": bbox.model_dump(),
+            "endpoint": endpoint,
+            "fetched_at": utc_now_iso(),
+            "osm_base_timestamp": str((raw.get("osm3s") or {}).get("timestamp_osm_base", "")),
+            "chunks": chunks,
+        }
+        return meta
+
+    def fetch(
+        self,
+        bbox: BBox,
+        *,
+        refresh: bool = False,
+        progress_cb: Callable[[int, int], None] | None = None,
+    ) -> OverpassResult:
+        if not refresh:
+            cached = self._load_cache(bbox)
+            if cached is not None:
+                logger.info("Overpass cache hit for %s", bbox.as_overpass())
+                return cached
+
+        cells = chunk_bboxes(bbox, self.settings.overpass_chunk_area_km2)
+        if len(cells) == 1:
+            raw, endpoint = self._request(bbox)
+            meta = self._meta(bbox, endpoint, raw)
+            self._save_cache(bbox, raw, meta)
+            if progress_cb is not None:
+                progress_cb(1, 1)
+            return OverpassResult(raw=raw, meta=meta, from_cache=False)
+
+        logger.info("Overpass fetch split into %s chunks for %s", len(cells), bbox.as_overpass())
+        payloads: list[dict[str, Any]] = []
+        timestamps: list[str] = []
+        endpoints: list[str] = []
+        all_cached = True
+        for done, cell in enumerate(cells, start=1):
+            cached = None if refresh else self._load_cache(cell)
+            if cached is not None:
+                payloads.append(cached.raw)
+                timestamps.append(str(cached.meta.get("osm_base_timestamp", "")))
+                endpoints.append(str(cached.meta.get("endpoint", "")))
+                if progress_cb is not None:
+                    progress_cb(done, len(cells))
+                continue
+            all_cached = False
+            raw, endpoint = self._request(cell)
+            meta = self._meta(cell, endpoint, raw)
+            self._save_cache(cell, raw, meta)
+            payloads.append(raw)
+            timestamps.append(meta["osm_base_timestamp"])
+            endpoints.append(endpoint)
+            if progress_cb is not None:
+                progress_cb(done, len(cells))
+
+        merged = _merge_payloads(payloads)
+        stamped = [value for value in timestamps if value]
+        meta = self._meta(
+            bbox,
+            endpoints[0] if endpoints else "",
+            merged,
+            chunks=len(cells),
+        )
+        # Mixed chunk ages: report the oldest base timestamp so the provenance
+        # never claims to be fresher than the stalest cell.
+        meta["osm_base_timestamp"] = min(stamped) if stamped else ""
+        meta["chunk_endpoints"] = sorted(set(endpoints))
+        self._save_cache(bbox, merged, meta)
+        return OverpassResult(raw=merged, meta=meta, from_cache=all_cached)
 
 
 class _RetryableStatus(Exception):
