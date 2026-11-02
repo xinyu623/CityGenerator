@@ -79,9 +79,9 @@ Without installing the console script:
 `--height`, `--level-height`, `--embed`, `--ground-margin`, `--simplify`,
 `--min-area`, `--terrain-resolution`, `--no-terrain`, `--refresh`,
 `--data-dir` (cache root), and `--quiet`. The CLI writes the same
-`city.stl`/`metadata.json`/`buildings.geojson`/`README.txt`/`result.zip` bundle
-into `<out>/output/` and returns a non-zero exit code with the error code on
-failure, so it can be used from batch scripts.
+`city.stl`/`patches.json`/`metadata.json`/`buildings.geojson`/`README.txt`/
+`result.zip` bundle into `<out>/output/` and returns a non-zero exit code with
+the error code on failure, so it can be used from batch scripts.
 
 ## Output
 
@@ -90,13 +90,21 @@ A completed job contains:
 | File | Contents |
 | --- | --- |
 | `city.stl` | Binary STL. One fused, closed, outward-oriented city solid: buildings plus a terrain block (or a flat 1 m slab when terrain is off). |
+| `patches.json` | Contiguous triangle ranges of `city.stl` labelled `ground`, `wall`, or `bottom`, in STL order, for CFD patch assignment. |
 | `metadata.json` | Schema version, local origin, CRS, options, terrain provenance, statistics, warnings, source provenance, and city validation results. |
 | `buildings.geojson` | WGS84 footprints with height, terrain ground height, roof height, source, and selected tags. |
 | `README.txt` | Short human-readable notes and CFD import guidance. |
-| `result.zip` | ZIP containing the four files above (it does not contain itself). |
+| `result.zip` | ZIP containing the five files above (it does not contain itself). |
 
 There are **no separate `buildings.stl` or `ground.stl` files**. The city is
 intended to be imported as one closed obstacle.
+
+`patches.json` maps every triangle to one of three patches: `ground` (upward
+triangles within `CITYGEN_PATCH_GROUND_TOLERANCE_M` of the terrain surface,
+0.05 m by default), `wall` (buildings, roofs, and the vertical terrain skirt),
+or `bottom` (the base underside). Ranges are contiguous and follow the STL
+triangle order, so a solver or script can assign boundary patches by reading
+the file in order.
 
 ### How the city is fused
 
@@ -315,6 +323,7 @@ CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
 CITYGEN_CONTACT_OVERLAP_M=0.1
+CITYGEN_PATCH_GROUND_TOLERANCE_M=0.05
 CITYGEN_HEIGHT_SAMPLING_ENABLED=true
 CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
 CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
@@ -342,6 +351,7 @@ Useful defaults:
   (`height_sampling_jitter = 10 %`). Level height: `3 m`.
 - Bottom embed depth: `0.5 m`; polygon simplification: `0.05 m`.
 - Ground slab thickness: `1 m`.
+- Patches: `patches.json` ground tolerance `0.05 m`.
 - Terrain: enabled, `30 m` grid, `150 m` median smoothing, max `80,000` cells,
   DEM zoom `10–14`.
 - Job retention / Overpass and DEM cache retention: `7 days`.

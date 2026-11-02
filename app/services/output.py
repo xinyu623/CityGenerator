@@ -18,6 +18,7 @@ from app.services.buildings import BuildResult
 from app.services.city import FusedCity, validate_city
 from app.services.errors import CityUnionError
 from app.services.io_utils import utc_now_iso, write_bytes_atomic, write_json_atomic
+from app.services.patches import face_kinds, patch_table
 from app.services.projection import Projector
 from app.services.stl_export import export_stl_bytes, load_stl_bytes
 from app.services.terrain import TerrainGrid
@@ -52,6 +53,7 @@ def _build_metadata(
     settings: Settings,
     warnings: list[WarningItem],
     terrain: TerrainGrid | None = None,
+    patches: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     origin_lon, origin_lat = projector.origin_wgs84()
     heights = [record.height_m for record in build_result.records]
@@ -108,6 +110,14 @@ def _build_metadata(
             "bounds_local": list(city.base_bounds),
         },
         "terrain": _terrain_metadata(build_result, terrain),
+        "patches": {
+            "file": "patches.json",
+            "unit": "m",
+            "triangle_count": int(patches["triangle_count"]) if patches else 0,
+            "ground_tolerance_m": float(patches["ground_tolerance_m"]) if patches else 0.0,
+            "counts": dict(patches["counts"]) if patches else {},
+            "range_count": len(patches["ranges"]) if patches else 0,
+        },
         "city": {
             "triangle_count": len(city.mesh.faces),
             "watertight": bool(city.mesh.is_watertight),
@@ -187,6 +197,7 @@ def _readme_text(metadata: dict[str, Any]) -> str:
     city = metadata["city"]
     warnings = metadata.get("warnings") or []
     terrain_block, ground_note = _terrain_readme(metadata)
+    patch_block = _patch_readme(metadata)
     warning_lines = "\n".join(f"- [{item['code']}] {item['message']}" for item in warnings)
     if not warning_lines:
         warning_lines = "- None"
@@ -206,15 +217,19 @@ city.stl        One fused, watertight solid: all buildings plus a
                 The boolean union removes internal faces and produces a
                 single closed surface for CFD preprocessing.
 metadata.json  Origin, CRS, parameters, statistics, warnings, and source.
+patches.json   Contiguous triangle ranges of city.stl labelled ground, wall,
+               or bottom, for CFD patch assignment.
 buildings.geojson  WGS84 building footprints and height attributes.
 README.txt      This file.
 
 There are no separate buildings.stl or ground.stl files in this output.
 
 {terrain_block}
+{patch_block}
 CFD notes
 ---------
-1. city.stl is one closed surface with no building/ground patch labels.
+1. city.stl is one closed surface; patches.json labels its triangles as
+   ground, wall, or bottom in the same order as the STL file.
 2. {ground_note}
 3. Build the fluid domain and volume mesh in your solver; this tool does not
    generate a volume mesh or solver case.
@@ -267,6 +282,31 @@ def _terrain_readme(metadata: dict[str, Any]) -> tuple[str, str]:
     return section, note
 
 
+def _patch_readme(metadata: dict[str, Any]) -> str:
+    """Return the patch-groups section for README.txt."""
+
+    patches = metadata.get("patches") or {}
+    total = patches.get("triangle_count", 0)
+    if not total:
+        return ""
+    counts = patches.get("counts") or {}
+    parts = ", ".join(
+        f"{name} {counts.get(name, 0)}" for name in ("ground", "wall", "bottom")
+    )
+    return (
+        "Patch groups\n"
+        "------------\n"
+        f"patches.json maps all {total} triangles of city.stl to ground, wall, or\n"
+        f"bottom ({parts}). The ranges are contiguous and in STL order, so a solver\n"
+        "can assign boundary patches by walking the file once.\n"
+        f"An upward triangle within {patches.get('ground_tolerance_m')} m of the terrain\n"
+        "surface is ground; other upward triangles are roofs and stay walls. The\n"
+        "terrain skirt is a wall and the base underside is bottom. Steep terrain can\n"
+        "misclassify a few near-surface roof triangles.\n"
+        "\n"
+    )
+
+
 def _preview_mesh(build_result: BuildResult, city: FusedCity) -> trimesh.Trimesh:
     """Build a clean display-only mesh without boolean contact patches."""
 
@@ -307,7 +347,6 @@ def write_outputs(
         output_dir / "preview.stl",
         export_stl_bytes(_preview_mesh(build_result, city)),
     )
-    names = ["city.stl"]
 
     loaded = load_stl_bytes(city_bytes)
     if len(loaded.faces) != len(city.mesh.faces):
@@ -318,6 +357,18 @@ def write_outputs(
     if not loaded.is_watertight:
         raise CityUnionError("city.stl 回读后不再是水密表面")
     written_non_manifold = validate_city(loaded)
+
+    kinds = face_kinds(
+        loaded,
+        terrain=terrain,
+        ground_tolerance_m=settings.patch_ground_tolerance_m,
+    )
+    patches = patch_table(
+        kinds,
+        ground_tolerance_m=settings.patch_ground_tolerance_m,
+    )
+    write_json_atomic(output_dir / "patches.json", patches)
+    names = ["city.stl", "patches.json"]
 
     metadata = _build_metadata(
         job_id=job_id,
@@ -331,8 +382,9 @@ def write_outputs(
         settings=settings,
         warnings=warnings,
         terrain=terrain,
+        patches=patches,
     )
-    metadata["files"] = names + ["metadata.json", "buildings.geojson", "README.txt"]
+    metadata["files"] = [*names, "metadata.json", "buildings.geojson", "README.txt"]
 
     write_json_atomic(output_dir / "buildings.geojson", _geojson(build_result))
     write_bytes_atomic(

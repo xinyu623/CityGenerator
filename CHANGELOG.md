@@ -4,6 +4,16 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- `patches.json` now ships next to `city.stl`: contiguous triangle ranges
+  labelled `ground` (upward and within `CITYGEN_PATCH_GROUND_TOLERANCE_M` =
+  0.05 m of the terrain surface), `wall` (building walls, roofs, and the
+  vertical terrain skirt), or `bottom` (the base underside). Ranges follow the
+  STL triangle order, so a solver can assign CFD boundary patches in one pass
+  without splitting the closed surface. Metadata gains a `patches` block with
+  the counts, tolerance, and range count; the file is listed in
+  `metadata.json → files`, `result.zip`, and `README.txt`. On the 4×4 km sample:
+  53 041 ground / 28 275 wall / 548 bottom triangles (993 ranges); on the
+  0.74 km² sample: 10 303 / 22 317 / 146 (471 ranges).
 - A large selection no longer fails when one Overpass chunk keeps timing out:
   after the endpoint retries are exhausted the cell is retried as four sub-cells,
   recursively at most `CITYGEN_OVERPASS_SPLIT_MAX_DEPTH` levels (2) and never

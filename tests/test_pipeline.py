@@ -92,7 +92,7 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch, synthetic_terr
 
     with zipfile.ZipFile(result.zip_path) as archive:
         names = set(archive.namelist())
-    assert {"city.stl", "metadata.json", "README.txt"} <= names
+    assert {"city.stl", "metadata.json", "README.txt", "patches.json"} <= names
     assert "buildings.stl" not in names
     assert "ground.stl" not in names
     assert "buildings.geojson" in names
@@ -140,6 +140,26 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch, synthetic_terr
     assert len(city.faces) > 0
     assert city.bounds[0][2] == pytest.approx(-1.0, abs=1e-3)
 
+    patches = json.loads((job_dir / "output" / "patches.json").read_text(encoding="utf-8"))
+    assert "patches.json" in metadata["files"]
+    assert patches["triangle_count"] == len(city.faces)
+    assert sum(patches["counts"].values()) == len(city.faces)
+    assert metadata["patches"]["counts"] == patches["counts"]
+    assert patches["counts"]["ground"] > 0
+    assert patches["counts"]["wall"] > 0
+    assert patches["counts"]["bottom"] > 0
+    normals = city.face_normals
+    covered = 0
+    for item in patches["ranges"]:
+        assert item["start"] == covered
+        covered += item["count"]
+        block = normals[item["start"] : item["start"] + item["count"]]
+        if item["kind"] == "ground":
+            assert (block[:, 2] > 0.0).all()
+        elif item["kind"] == "bottom":
+            assert (block[:, 2] < 0.0).all()
+    assert covered == len(city.faces)
+
 
 def test_pipeline_without_terrain_is_flat(tmp_path, monkeypatch):
     monkeypatch.setattr(
@@ -171,6 +191,10 @@ def test_pipeline_without_terrain_is_flat(tmp_path, monkeypatch):
     city = load_stl_bytes((job_dir / "output" / "city.stl").read_bytes())
     assert city.is_watertight
     assert non_manifold_edge_count(city) == 0
+
+    patches = json.loads((job_dir / "output" / "patches.json").read_text(encoding="utf-8"))
+    assert patches["counts"]["ground"] > 0  # the flat slab top at z=0
+    assert patches["counts"]["bottom"] > 0
 
 
 def test_pipeline_terrain_stage_is_reported(tmp_path, monkeypatch, synthetic_terrain):

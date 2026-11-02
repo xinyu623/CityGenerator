@@ -73,7 +73,7 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 `--height`、`--level-height`、`--embed`、`--ground-margin`、`--simplify`、
 `--min-area`、`--terrain-resolution`、`--no-terrain`、`--refresh`、
 `--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
-下的 `city.stl` 等五个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
+下的 `city.stl` 等六个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
 
 ## 输出内容
 
@@ -82,13 +82,19 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 | 文件 | 内容 |
 | --- | --- |
 | `city.stl` | 二进制 STL。一个融合、闭合、法线朝外的城市实体：全部建筑 + 地形块（关闭地形时为 1 m 厚平整底座）。 |
+| `patches.json` | `city.stl` 三角形到 `ground` / `wall` / `bottom` 的连续区间，按 STL 顺序排列，用于 CFD 边界 patch 划分。 |
 | `metadata.json` | 模式版本、本地原点、CRS、参数、地形来源、统计、警告、数据来源和城市实体校验结果。 |
 | `buildings.geojson` | WGS84 建筑轮廓，含高度、地形地面高程、屋顶高程、来源和筛选后的标签。 |
 | `README.txt` | 简短说明和 CFD 导入建议。 |
-| `result.zip` | 包含上述四个文件的压缩包（不包含自身）。 |
+| `result.zip` | 包含上述五个文件的压缩包（不包含自身）。 |
 
 **不再分别输出 `buildings.stl` 和 `ground.stl`**。城市实体按一个闭合障碍物
 导入。
+
+`patches.json` 把每个三角形归为三类：`ground`（朝上且在
+`CITYGEN_PATCH_GROUND_TOLERANCE_M` 范围内贴近地形表面，默认 0.05 m）、
+`wall`（建筑、屋顶和地形侧壁）或 `bottom`（底座底面）。区间连续且与 STL
+三角形顺序一致，求解器或脚本按顺序读取即可划分边界 patch。
 
 ### 城市实体如何融合
 
@@ -275,6 +281,7 @@ CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
 CITYGEN_CONTACT_OVERLAP_M=0.1
+CITYGEN_PATCH_GROUND_TOLERANCE_M=0.05
 CITYGEN_HEIGHT_SAMPLING_ENABLED=true
 CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
 CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
@@ -302,6 +309,7 @@ CITYGEN_DEM_MAX_RETRIES=3
   高度分布中随机取值，抖动 `10 %`）；层高：`3 m`。
 - 底部下沉深度：`0.5 m`；轮廓简化：`0.05 m`。
 - 地面底座厚度：`1 m`。
+- 边界 patch：`patches.json` 的地面判定容差 `0.05 m`。
 - 地形：默认开启，网格 `30 m`，`150 m` 中值平滑，最多 `80,000` 个格点，
   DEM 缩放级别 `10–14`。
 - 任务保留 / Overpass 与 DEM 缓存保留：`7 天`。

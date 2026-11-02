@@ -270,16 +270,26 @@ per triangle. `write_outputs` validates the loaded file again and records
 
 ### 8. Output bundle
 
-`write_outputs` produces `city.stl`, `metadata.json`, `buildings.geojson`,
-`README.txt`, and `result.zip`. There are no separate building or ground STLs in
-the job files or ZIP. It also writes an internal `preview.stl` assembled from
-the individual building shells and the clean base mesh (`FusedCity.base_mesh`:
-the terrain block when enabled); this display-only mesh excludes boolean welds
-and is served only by `/api/jobs/{id}/preview.stl`. Writes use a temp file +
-replace so a crash never leaves a half-written JSON/ZIP visible. The metadata
-schema version is `2.0`; it adds a `terrain` block (`enabled`, source, zoom,
-grid, datum, relief, tile counts, nodata fill), `ground.surface`/`mode`, and the
-per-building `ground_m`/`roof_m`/`footprint_relief_m` in `buildings.geojson`.
+`write_outputs` produces `city.stl`, `patches.json`, `metadata.json`,
+`buildings.geojson`, `README.txt`, and `result.zip`. There are no separate
+building or ground STLs in the job files or ZIP. It also writes an internal
+`preview.stl` assembled from the individual building shells and the clean base
+mesh (`FusedCity.base_mesh`: the terrain block when enabled); this display-only
+mesh excludes boolean welds and is served only by `/api/jobs/{id}/preview.stl`.
+Writes use a temp file + replace so a crash never leaves a half-written
+JSON/ZIP visible. The metadata schema version is `2.0`; it adds a `terrain`
+block (`enabled`, source, zoom, grid, datum, relief, tile counts, nodata fill),
+a `patches` block (`counts`, `ground_tolerance_m`, `range_count`, `file`),
+`ground.surface`/`mode`, and the per-building
+`ground_m`/`roof_m`/`footprint_relief_m` in `buildings.geojson`.
+
+`patches.json` classifies every triangle of the written STL as `ground`
+(upward and within `CITYGEN_PATCH_GROUND_TOLERANCE_M` of the terrain surface),
+`wall` (building walls, roofs, and the vertical terrain skirt), or `bottom`
+(every vertex on the mesh's lowest plane, i.e. the base underside). Ranges are
+contiguous and in STL order; the classifier runs on the reloaded `city.stl`, so
+the order is exactly the file's. The geometric bottom rule keeps float32 noise
+on short vertical wall triangles from creating a second bottom patch.
 
 ## Frontend
 

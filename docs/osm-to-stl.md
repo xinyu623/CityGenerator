@@ -204,18 +204,56 @@ repeat triangle count times:
 ```
 
 STL is a triangle soup: it has no units, no coordinate-system metadata, and no
-per-building groups. That is why the ZIP also contains `metadata.json` and
-`buildings.geojson`. Always import the STL with the metadata's unit and frame;
-do not assume the solver's default unit is metres.
+per-building groups. That is why the ZIP also contains `metadata.json`,
+`buildings.geojson`, and `patches.json` (ground/wall/bottom ranges). Always
+import the STL with the metadata's unit and frame; do not assume the solver's
+default unit is metres.
 
-## 8. CFD import checklist
+## 8. Patch groups
+
+`patches.json` sits next to `city.stl` and maps every triangle to one of three
+CFD patches, without changing the geometry:
+
+- `ground` — upward triangles within `CITYGEN_PATCH_GROUND_TOLERANCE_M`
+  (0.05 m by default) of the terrain surface; the flat ground at `z = 0` when
+  terrain is off.
+- `wall` — building walls, roofs, and the vertical terrain skirt around the
+  base border.
+- `bottom` — the base underside (every vertex on the mesh's lowest plane).
+
+The file has this shape:
+
+```json
+{
+  "schema_version": "1.0",
+  "unit": "m",
+  "triangle_count": 81864,
+  "ground_tolerance_m": 0.05,
+  "counts": {"ground": 53041, "wall": 28275, "bottom": 548},
+  "ranges": [
+    {"start": 0, "count": 11, "kind": "wall"},
+    {"start": 11, "count": 3, "kind": "ground"}
+  ]
+}
+```
+
+`ranges` cover `[0, triangle_count)` contiguously without overlap, and the
+triangle order is the STL order. A solver that reads triangles sequentially can
+therefore assign the boundary patch in the same pass. The classification runs on
+the reloaded `city.stl`, so the order is the file's own. Ground detection is a
+distance test, not a roof/terrain classifier: on steep terrain a near-surface
+roof triangle can be labelled `ground`, so check `counts` for your area and
+adjust the tolerance if needed.
+
+## 9. CFD import checklist
 
 1. **Units.** Confirm the solver reads the STL as metres. A 100 m building
    should measure 100 units, not 100 mm or 100 ft.
 2. **Orientation.** `+Z` is up. If the solver uses Y-up, rotate `-90°` about X.
-3. **Patch.** Import `city.stl` as one closed obstacle or solid. Do not split it
-   back into building and ground patches unless your solver explicitly requires
-   that.
+3. **Patch.** Import `city.stl` as one closed obstacle or solid. When the solver
+   needs separate ground and wall boundaries, assign them from `patches.json`
+   (contiguous ranges in STL order) instead of splitting the geometry; there is
+   still exactly one closed surface.
 4. **Domain.** Create a fluid domain with an inlet, outlet, sides, and top.
    Recommended initial distances: 5H upstream, 10–15H downstream, 5H sides,
    5H top, where H is the tallest building (tune for your study).
@@ -233,7 +271,7 @@ do not assume the solver's default unit is metres.
 9. **Mesh.** This tool stops at surface STL. Volume meshing, boundary layers,
    turbulence models, and solver dictionaries are outside its scope.
 
-## 9. Known limitations
+## 10. Known limitations
 
 - Terrain is a 30 m grid resampled from ~30 m DEM data and median-smoothed at
   ~150 m: no cliffs, buildings, vegetation, or carved streams.
@@ -244,6 +282,8 @@ do not assume the solver's default unit is metres.
 - Touching buildings are fused with local weld boxes, not reconstructed as
   shared architectural walls.
 - OSM height tags are sparse and sometimes wrong.
+- Patch classification is a 0.05 m distance test to the terrain surface; on
+  steep terrain a near-surface roof triangle can be labelled `ground`.
 - Public Overpass endpoints can be slow or rate-limited; the cache helps after
   the first request. DEM tiles are cached the same way.
 - `city.stl` is a validated closed surface, but it is not a volume mesh or a
