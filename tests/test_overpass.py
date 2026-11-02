@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from urllib.parse import unquote_plus
@@ -426,3 +427,68 @@ def test_split_stops_at_the_minimum_cell_area(tmp_path):
     assert getattr(excinfo.value, "code", "") == "OVERPASS_ERROR"
     # The parent, then exactly one child that cannot be split any further.
     assert calls["count"] == 2
+
+
+def test_cached_fetch_does_not_replay_the_previous_split_metadata(tmp_path):
+    cells = chunk_bboxes(BIG_BBOX, 4.0)
+    failing = cells[1]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bbox = request_bbox(request)
+        if bbox.as_overpass() == failing.as_overpass():
+            return httpx.Response(504, text="gateway timeout")
+        return httpx.Response(200, json=cell_payload(1))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    overpass = OverpassClient(
+        make_settings(tmp_path, overpass_max_retries=1),
+        client=client,
+        sleep=lambda _: None,
+    )
+    first = overpass.fetch(BIG_BBOX)
+    assert len(first.meta["overpass_splits"]) == 1
+    assert first.meta["cell_times"]
+
+    again = overpass.fetch(BIG_BBOX)
+
+    # A top-level cache hit touches no cells, so it must not report the previous
+    # run's split and network timings as if this run had done them.
+    assert again.from_cache is True
+    assert again.meta["chunks"] == 4
+    assert again.meta["overpass_splits"] == []
+    assert again.meta["cell_times"] == []
+
+
+def test_split_of_an_elongated_cell_stays_four_cells_above_the_minimum(tmp_path):
+    # 1.89 km x 0.53 km = 1.002 km²; an area/4 chunk_bboxes split would round up
+    # to 4 x 2 children of 0.125 km², below the 0.25 km² minimum.
+    mid_lat = 29.57
+    bbox = BBox(
+        south=mid_lat,
+        west=106.5,
+        north=mid_lat + 1890.0 / 110900.0,
+        east=106.5 + 530.0 / (111320.0 * math.cos(math.radians(mid_lat))),
+    )
+    requests: list[BBox] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        queried = request_bbox(request)
+        requests.append(queried)
+        if queried.as_overpass() == bbox.as_overpass():
+            return httpx.Response(504, text="gateway timeout")
+        return httpx.Response(200, json=cell_payload(1))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    overpass = OverpassClient(
+        make_settings(tmp_path, overpass_max_retries=1),
+        client=client,
+        sleep=lambda _: None,
+    )
+    result = overpass.fetch(bbox)
+
+    assert len(requests) == 1 + 4
+    assert len(result.meta["overpass_splits"]) == 1
+    assert result.meta["overpass_splits"][0]["children"] == 4
+    children = [entry for entry in result.meta["cell_times"] if entry["depth"] == 1]
+    assert len(children) == 4
+    assert all(area_km2(BBox(**entry["bbox"])) >= 0.25 * 0.999 for entry in children)

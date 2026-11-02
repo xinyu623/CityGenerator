@@ -60,6 +60,18 @@ def _planar_area_km2(bbox: BBox) -> float:
     return abs(width_m * height_m) / 1_000_000.0
 
 
+def quarter_bboxes(bbox: BBox) -> list[BBox]:
+    """Cut ``bbox`` into four equal quarters at its mid-latitude/longitude."""
+
+    mid_lat = (bbox.south + bbox.north) / 2.0
+    mid_lon = (bbox.west + bbox.east) / 2.0
+    return [
+        BBox(south=south, west=west, north=north, east=east)
+        for south, north in ((bbox.south, mid_lat), (mid_lat, bbox.north))
+        for west, east in ((bbox.west, mid_lon), (mid_lon, bbox.east))
+    ]
+
+
 def chunk_bboxes(bbox: BBox, max_chunk_area_km2: float) -> list[BBox]:
     """Split ``bbox`` into a grid of cells no larger than ``max_chunk_area_km2``.
 
@@ -305,12 +317,15 @@ class OverpassClient:
         return meta
 
     def _split_cells(self, bbox: BBox, depth: int) -> list[BBox]:
-        """The child cells to try after ``bbox`` exhausted its retries.
+        """The four child cells to try after ``bbox`` exhausted its retries.
 
-        ``chunk_bboxes`` is reused with a quarter of the parent's area, so a
-        rectangle always becomes four sub-cells. ``depth`` counts splits already
-        applied to the enclosing top-level chunk; the minimum area keeps the
-        recursion from producing cells too small for Overpass to be useful.
+        The rectangle is cut at its mid-latitude and mid-longitude, so each child
+        has a quarter of the parent's area regardless of aspect ratio (an
+        area-based ``chunk_bboxes`` call rounds each axis up and can produce
+        eight sub-minimum children for an elongated cell). ``depth`` counts
+        splits already applied to the enclosing top-level chunk; the minimum
+        area keeps the recursion from producing cells too small for Overpass to
+        be useful.
         """
 
         if depth >= max(0, int(self.settings.overpass_split_max_depth)):
@@ -322,10 +337,13 @@ class OverpassClient:
         # with the same tolerance: a nominal 1 km² cell must still be allowed to
         # produce its nominal 0.25 km² children.
         min_area = float(self.settings.overpass_split_min_area_km2)
-        if parent_area / 4.0 < min_area * (1.0 - 1e-3):
+        floor_area = min_area * (1.0 - 1e-3)
+        if parent_area / 4.0 < floor_area:
             return []
-        children = chunk_bboxes(bbox, parent_area / 4.0)
-        return children if len(children) > 1 else []
+        children = quarter_bboxes(bbox)
+        if any(_planar_area_km2(child) < floor_area for child in children):
+            return []
+        return children
 
     @staticmethod
     def _cell_time(
@@ -456,6 +474,10 @@ class OverpassClient:
             cached = self._load_cache(bbox)
             if cached is not None:
                 logger.info("Overpass cache hit for %s", bbox.as_overpass())
+                # The split/timing block in the cache describes the fetch that
+                # filled it; a top-level hit touches no cells this run.
+                cached.meta["overpass_splits"] = []
+                cached.meta["cell_times"] = []
                 return cached
 
         cells = chunk_bboxes(bbox, self.settings.overpass_chunk_area_km2)
