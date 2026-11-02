@@ -20,10 +20,12 @@
 ![CityGenerator 界面](docs/images/frontend.png)
 
 内置查看器把融合后的城市呈现为暖白色建筑模型，放置在展示底座上，带柔和
-的棚拍光照；支持左键旋转、中键平移、滚轮缩放。查看器用单一材质显示融合后的
-STL，不再额外区分建筑和地面。它加载一个仅供显示的预览网格：由干净的建筑
-壳体和平整底座（开启地形时为地形块）组成；该预览不会列在任务文件里，也不
-进入 ZIP。查看器使用对数深度缓冲，避免大面积地面在低角度观察时产生
+的棚拍光照；支持左键旋转、中键平移、滚轮缩放。查看器加载融合后的 `city.stl`
+和 `patches.json`，按 patch 上色：`ground` 为沙色、`wall`（建筑、屋顶、地形
+侧壁）为暖白色、底座 `bottom` 为深色，并在底部图例里列出各类三角形数量。
+没有 `patches.json`（或区间与网格不匹配）的任务会退回单色预览：由干净的建筑
+壳体和平整底座（开启地形时为地形块）组成的仅供显示的网格；该预览不会列在任务
+文件里，也不进入 ZIP。查看器使用对数深度缓冲，避免大面积地面在低角度观察时产生
 z-fighting。导出的 `city.stl` 仍然是唯一的 Z 轴向上 CFD 网格。
 
 ![CityGenerator 三维预览](docs/images/preview.png)
@@ -92,8 +94,9 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 **不再分别输出 `buildings.stl` 和 `ground.stl`**。城市实体按一个闭合障碍物
 导入。
 
-`patches.json` 把每个三角形归为三类：`ground`（朝上且在
-`CITYGEN_PATCH_GROUND_TOLERANCE_M` 范围内贴近地形表面，默认 0.05 m）、
+`patches.json` 把每个三角形归为三类：`ground`（朝上，质心和三个顶点都在
+`CITYGEN_PATCH_GROUND_TOLERANCE_M` 范围内贴近地形表面，且法向与地形法向足够
+一致——默认 0.05 m、点积 0.9）、
 `wall`（建筑、屋顶和地形侧壁）或 `bottom`（底座底面）。区间连续且与 STL
 三角形顺序一致，求解器或脚本按顺序读取即可划分边界 patch。
 
@@ -289,6 +292,7 @@ CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
 CITYGEN_CONTACT_OVERLAP_M=0.1
 CITYGEN_PATCH_GROUND_TOLERANCE_M=0.05
+CITYGEN_PATCH_GROUND_NORMAL_DOT_MIN=0.9
 CITYGEN_HEIGHT_SAMPLING_ENABLED=true
 CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
 CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
@@ -320,7 +324,7 @@ CITYGEN_DEM_MAX_RETRIES=3
   （`height_sampling_conservative`）。
 - 底部下沉深度：`0.5 m`；轮廓简化：`0.05 m`。
 - 地面底座厚度：`1 m`。
-- 边界 patch：`patches.json` 的地面判定容差 `0.05 m`。
+- 边界 patch：`patches.json` 的地面判定容差 `0.05 m`，法向一致性要求 `0.9`。
 - 地形：默认开启，网格 `30 m`，`150 m` 中值平滑，最多 `80,000` 个格点，
   DEM 缩放级别 `10–14`。
 - 任务保留 / Overpass 与 DEM 缓存保留：`7 天`。

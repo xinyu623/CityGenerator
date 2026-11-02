@@ -24,13 +24,16 @@ the only external inputs; both are cached on disk.
 
 The built-in viewer presents the fused city as a warm-white architectural model
 on a display plinth, with soft studio lighting and left-drag orbit, middle-drag
-pan, and wheel zoom. The viewer shows the fused STL with one material so the
-preview does not invent a separate ground layer. It loads an internal
-display-only preview mesh assembled from the clean building shells and the clean
-base (the terrain block when terrain is enabled); that preview is not listed in
-the job files or included in the ZIP. A logarithmic depth buffer prevents the
-large ground surface from z-fighting at grazing angles. The exported `city.stl`
-remains the single Z-up CFD mesh.
+pan, and wheel zoom. It loads the fused `city.stl` together with
+`patches.json` and colours the surface by patch group — sand for `ground`,
+warm white for `wall` (buildings, roofs, the terrain skirt), and a darker tone
+for the base `bottom` — then lists the counts in the footer legend. A job
+without `patches.json` (or whose ranges do not cover the mesh) falls back to an
+internal display-only preview mesh assembled from the clean building shells and
+the clean base (the terrain block when terrain is enabled); that preview is not
+listed in the job files or included in the ZIP. A logarithmic depth buffer
+prevents the large ground surface from z-fighting at grazing angles. The
+exported `city.stl` remains the single Z-up CFD mesh.
 
 ![CityGenerator 3D preview](docs/images/preview.png)
 
@@ -101,9 +104,11 @@ There are **no separate `buildings.stl` or `ground.stl` files**. The city is
 intended to be imported as one closed obstacle.
 
 `patches.json` maps every triangle to one of three patches: `ground` (upward
-triangles within `CITYGEN_PATCH_GROUND_TOLERANCE_M` of the terrain surface,
-0.05 m by default), `wall` (buildings, roofs, and the vertical terrain skirt),
-or `bottom` (the base underside). Ranges are contiguous and follow the STL
+triangles whose centroid and all three vertices are within
+`CITYGEN_PATCH_GROUND_TOLERANCE_M` of the terrain surface and whose normal
+agrees with the terrain normal, 0.05 m and a dot of 0.9 by default), `wall`
+(buildings, roofs, and the vertical terrain skirt), or `bottom` (the base
+underside). Ranges are contiguous and follow the STL
 triangle order, so a solver or script can assign boundary patches by reading
 the file in order.
 
@@ -331,6 +336,7 @@ CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
 CITYGEN_CONTACT_OVERLAP_M=0.1
 CITYGEN_PATCH_GROUND_TOLERANCE_M=0.05
+CITYGEN_PATCH_GROUND_NORMAL_DOT_MIN=0.9
 CITYGEN_HEIGHT_SAMPLING_ENABLED=true
 CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
 CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
@@ -362,7 +368,7 @@ Useful defaults:
   bound: `height ≤ 8·√area` (`height_sampling_conservative`).
 - Bottom embed depth: `0.5 m`; polygon simplification: `0.05 m`.
 - Ground slab thickness: `1 m`.
-- Patches: `patches.json` ground tolerance `0.05 m`.
+- Patches: `patches.json` ground tolerance `0.05 m` and normal agreement `0.9`.
 - Terrain: enabled, `30 m` grid, `150 m` median smoothing, max `80,000` cells,
   DEM zoom `10–14`.
 - Job retention / Overpass and DEM cache retention: `7 days`.

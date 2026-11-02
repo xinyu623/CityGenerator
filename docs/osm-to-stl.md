@@ -254,9 +254,11 @@ default unit is metres.
 `patches.json` sits next to `city.stl` and maps every triangle to one of three
 CFD patches, without changing the geometry:
 
-- `ground` — upward triangles within `CITYGEN_PATCH_GROUND_TOLERANCE_M`
-  (0.05 m by default) of the terrain surface; the flat ground at `z = 0` when
-  terrain is off.
+- `ground` — upward triangles that lie on the terrain: the centroid **and all
+  three vertices** are within `CITYGEN_PATCH_GROUND_TOLERANCE_M` (0.05 m by
+  default) of the surface, and the face normal agrees with the terrain normal
+  (`CITYGEN_PATCH_GROUND_NORMAL_DOT_MIN`, 0.9). With terrain off the reference is
+  the flat ground at `z = 0` and its up normal.
 - `wall` — building walls, roofs, and the vertical terrain skirt around the
   base border.
 - `bottom` — the base underside (every vertex on the mesh's lowest plane).
@@ -267,9 +269,10 @@ The file has this shape:
 {
   "schema_version": "1.0",
   "unit": "m",
-  "triangle_count": 84654,
+  "triangle_count": 87388,
   "ground_tolerance_m": 0.05,
-  "counts": {"ground": 53673, "wall": 30433, "bottom": 548},
+  "ground_normal_dot_min": 0.9,
+  "counts": {"ground": 54518, "wall": 32322, "bottom": 548},
   "ranges": [
     {"start": 0, "count": 11, "kind": "wall"},
     {"start": 11, "count": 3, "kind": "ground"}
@@ -280,10 +283,10 @@ The file has this shape:
 `ranges` cover `[0, triangle_count)` contiguously without overlap, and the
 triangle order is the STL order. A solver that reads triangles sequentially can
 therefore assign the boundary patch in the same pass. The classification runs on
-the reloaded `city.stl`, so the order is the file's own. Ground detection is a
-distance test, not a roof/terrain classifier: on steep terrain a near-surface
-roof triangle can be labelled `ground`, so check `counts` for your area and
-adjust the tolerance if needed.
+the reloaded `city.stl`, so the order is the file's own. The whole-triangle and
+normal tests keep a near-surface roof triangle on a slope, and a near-vertical
+wall sliver that touches the ground plane, out of `ground`; a triangle that
+really lies on the terrain is always `ground`, however steep the slope.
 
 ## 9. CFD import checklist
 
@@ -322,8 +325,9 @@ adjust the tolerance if needed.
 - Touching buildings are fused with local weld boxes, not reconstructed as
   shared architectural walls.
 - OSM height tags are sparse and sometimes wrong.
-- Patch classification is a 0.05 m distance test to the terrain surface; on
-  steep terrain a near-surface roof triangle can be labelled `ground`.
+- Patch classification tests the whole triangle (centroid and vertices) and its
+  normal, so steep terrain no longer hides roofs in `ground`; a three-sided
+  sliver that only touches the ground plane stays `wall`.
 - Public Overpass endpoints can be slow or rate-limited; the cache helps after
   the first request. DEM tiles are cached the same way.
 - `city.stl` is a validated closed surface, but it is not a volume mesh or a

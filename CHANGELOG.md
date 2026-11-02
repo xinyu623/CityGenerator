@@ -4,6 +4,26 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- `patches.json` ground detection now tests the whole triangle and its normal:
+  the centroid and all three vertices must lie within
+  `CITYGEN_PATCH_GROUND_TOLERANCE_M` of the terrain surface, and the face normal
+  must agree with the terrain normal (`CITYGEN_PATCH_GROUND_NORMAL_DOT_MIN`,
+  0.9). On the 4×4 km sample 97 of 54 615 `ground` faces were wrong — 73
+  near-surface roof/wall triangles with a vertex up to 0.34 m off the surface
+  and 24 near-vertical slivers with |nz| ≈ 0.02 — so ground is now 54 518 and
+  wall 32 322, with the geometry unchanged (87 388 triangles, same volume). A
+  legitimate terrain triangle on any slope stays `ground`; the 1 km² sample has
+  3 721 ground faces, every vertex within 0.08 mm of the surface and a normal
+  dot of at least 0.996.
+- The Three.js preview colours the fused city by patch group: it loads
+  `city.stl` plus `patches.json`, splits the geometry by the recorded ranges
+  into `ground` / `wall` / `bottom` meshes with their own materials, and lists
+  the counts in the footer legend. Jobs without a usable `patches.json` fall
+  back to the single-material `preview.stl`. The result panel gains a
+  `地面 / 墙面` card, and `stats.patch_counts` / `stats.patch_ranges` expose the
+  counts to any client.
+- `patches.json` and the metadata `patches` block record
+  `ground_normal_dot_min`.
 - Height sampling v3: an untagged building now draws from observations whose own
   footprint is within `0.5–2×` its area (the draw falls back to the weighted pool
   of every observation with a known area when that band holds none), weighted by
