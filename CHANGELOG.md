@@ -4,6 +4,13 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- Untagged buildings now prefer heights from similarly sized OSM buildings: each
+  known height is paired with its footprint area, and a draw for a target
+  footprint uses observations within 0.25–4× its area, falling back to the whole
+  pool when nothing matches. `metadata.json → buildings.height_sampling` gains
+  `area_weighted` and `area_ratio`. On the 4×4 km sample the sampled heights
+  correlate with footprint area (log-log Pearson 0.36; median 3.1 m under
+  2 000 m² vs 33.5 m above), where before a shed could draw a tower height.
 - `patches.json` now ships next to `city.stl`: contiguous triangle ranges
   labelled `ground` (upward and within `CITYGEN_PATCH_GROUND_TOLERANCE_M` =
   0.05 m of the terrain surface), `wall` (building walls, roofs, and the

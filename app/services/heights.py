@@ -11,6 +11,10 @@ from typing import Any
 
 _NUMBER = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 _FEET_MARKERS = ("ft", "feet", "foot", "'")
+# A known height is a candidate for a target footprint when its building area is
+# between these fractions of the target area.
+AREA_RATIO_MIN = 0.25
+AREA_RATIO_MAX = 4.0
 
 
 def _number(value: Any) -> float | None:
@@ -124,23 +128,47 @@ class HeightSampler:
     building the same global default flattens that. Instead, sample the heights
     of the tagged buildings in the same selection, with a small jitter so the
     result does not repeat only a handful of exact values.
+
+    Known heights may be paired with their footprint area; a draw for a target
+    footprint then prefers observations from similar-sized buildings (between
+    ``area_ratio_min`` and ``area_ratio_max`` times its area), so a shed does not
+    draw a tower height. When no observation falls in that band, the draw falls
+    back to the whole pool.
     """
 
     def __init__(
         self,
-        known: Iterable[float],
+        known: Iterable[float | tuple[float, float]],
         *,
         jitter: float = 0.1,
         seed: int = 0,
+        area_ratio_min: float = AREA_RATIO_MIN,
+        area_ratio_max: float = AREA_RATIO_MAX,
     ) -> None:
-        values: list[float] = []
-        for value in known:
-            height = float(value)
-            if 2.0 <= height <= 300.0:
-                values.append(height)
-        self._values = sorted(values)
+        heights: list[float] = []
+        areas: list[float] = []
+        for item in known:
+            if isinstance(item, (tuple, list)):
+                height_value, area_value = item[0], item[1]
+            else:
+                height_value, area_value = item, 0.0
+            try:
+                height = float(height_value)
+                area = float(area_value)
+            except (TypeError, ValueError):
+                continue
+            if not 2.0 <= height <= 300.0:
+                continue
+            heights.append(height)
+            areas.append(area if math.isfinite(area) and area > 0.0 else 0.0)
+
+        order = sorted(range(len(heights)), key=heights.__getitem__)
+        self._values = [heights[index] for index in order]
+        self._areas = [areas[index] for index in order]
         self._jitter = max(0.0, float(jitter))
         self._rng = random.Random(int(seed))
+        self._area_ratio_min = max(0.0, float(area_ratio_min))
+        self._area_ratio_max = max(self._area_ratio_min, float(area_ratio_max))
 
     def __len__(self) -> int:
         return len(self._values)
@@ -149,11 +177,33 @@ class HeightSampler:
     def usable(self) -> bool:
         return bool(self._values)
 
-    def draw(self) -> float:
+    @property
+    def area_weighted(self) -> bool:
+        return any(area > 0.0 for area in self._areas)
+
+    def _candidates(self, area_m2: float | None) -> list[float]:
+        if area_m2 is None or not self.area_weighted:
+            return self._values
+        try:
+            target = float(area_m2)
+        except (TypeError, ValueError):
+            return self._values
+        if not math.isfinite(target) or target <= 0.0:
+            return self._values
+        low = target * self._area_ratio_min
+        high = target * self._area_ratio_max
+        pool = [
+            height
+            for height, area in zip(self._values, self._areas, strict=True)
+            if area > 0.0 and low <= area <= high
+        ]
+        return pool or self._values
+
+    def draw(self, area_m2: float | None = None) -> float:
         """One height in metres, jittered around a local observation."""
 
         if not self._values:
             raise ValueError("height sampler has no known heights")
-        base = self._rng.choice(self._values)
+        base = self._rng.choice(self._candidates(area_m2))
         value = base * (1.0 + self._rng.uniform(-self._jitter, self._jitter))
         return min(300.0, max(2.0, value))

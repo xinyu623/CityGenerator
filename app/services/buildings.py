@@ -9,6 +9,7 @@ full extent of the footprints before any building base can be placed:
 
 from __future__ import annotations
 
+import math
 import threading
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
@@ -21,7 +22,13 @@ from shapely import STRtree, make_valid
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
 
-from app.services.heights import HeightInfo, HeightSampler, resolve_height
+from app.services.heights import (
+    AREA_RATIO_MAX,
+    AREA_RATIO_MIN,
+    HeightInfo,
+    HeightSampler,
+    resolve_height,
+)
 from app.services.issues import Issue
 from app.services.projection import Projector
 from app.services.terrain import STEEP_FOOTPRINT_RELIEF_M, TerrainGrid
@@ -311,14 +318,28 @@ def detect_overlaps(polygons: Sequence[Polygon], min_overlap_m2: float = 0.5) ->
     return count
 
 
-def _known_heights(
+def _footprint_area_m2(geometry: Any) -> float:
+    """Approximate a WGS84 footprint's area in m², to band heights by building size."""
+
+    try:
+        area_deg2 = float(geometry.area)
+        latitude = float(geometry.centroid.y)
+    except Exception:
+        return 0.0
+    if not math.isfinite(area_deg2) or area_deg2 <= 0.0:
+        return 0.0
+    metres_per_degree_sq = 111_320.0 * 110_900.0 * max(math.cos(math.radians(latitude)), 0.01)
+    return area_deg2 * metres_per_degree_sq
+
+
+def _known_height_pairs(
     features: Sequence[BuildingFeature],
     default_height_m: float,
     level_height_m: float,
-) -> list[float]:
-    """Heights of buildings that actually carry a height or level tag."""
+) -> list[tuple[float, float]]:
+    """``(height, footprint area)`` for buildings that carry a height or level tag."""
 
-    values: list[float] = []
+    pairs: list[tuple[float, float]] = []
     for feature in features:
         info = resolve_height(
             feature.tags,
@@ -326,8 +347,8 @@ def _known_heights(
             level_height_m=level_height_m,
         )
         if info.source != "default":
-            values.append(info.height_m)
-    return values
+            pairs.append((info.height_m, _footprint_area_m2(feature.geometry)))
+    return pairs
 
 
 def prepare_buildings(
@@ -359,7 +380,7 @@ def prepare_buildings(
 
     sampler: HeightSampler | None = None
     if sample_missing_heights:
-        known = _known_heights(features, default_height_m, level_height_m)
+        known = _known_height_pairs(features, default_height_m, level_height_m)
         if len(known) >= max(1, int(min_height_samples)):
             sampler = HeightSampler(known, jitter=height_jitter, seed=height_seed)
             result.height_sampling = {
@@ -367,6 +388,8 @@ def prepare_buildings(
                 "known": len(known),
                 "jitter": float(height_jitter),
                 "seed": int(height_seed),
+                "area_weighted": sampler.area_weighted,
+                "area_ratio": [AREA_RATIO_MIN, AREA_RATIO_MAX],
             }
         else:
             result.height_sampling = {
@@ -402,8 +425,9 @@ def prepare_buildings(
             level_height_m=level_height_m,
         )
         if sampler is not None and height.source == "default":
+            footprint_area_m2 = math.fsum(polygon.area for polygon in polygons)
             height = HeightInfo(
-                height_m=sampler.draw(),
+                height_m=sampler.draw(footprint_area_m2),
                 base_m=height.base_m,
                 source="sampled",
                 clamped=height.clamped,

@@ -225,12 +225,17 @@ def test_separate_collapsed_vertices_moves_sub_millimetre_pairs():
     assert float(np.linalg.norm(mesh.vertices[3] - mesh.vertices[0])) >= 1e-3
 
 
-def _feature(osm_id: int, tags: dict[str, str], offset: float = 0.0) -> BuildingFeature:
+def _feature(
+    osm_id: int,
+    tags: dict[str, str],
+    offset: float = 0.0,
+    size: float = 0.0005,
+) -> BuildingFeature:
     ring = [
         (112.9000 + offset, 28.2000),
-        (112.9005 + offset, 28.2000),
-        (112.9005 + offset, 28.2005),
-        (112.9000 + offset, 28.2005),
+        (112.9000 + offset + size, 28.2000),
+        (112.9000 + offset + size, 28.2000 + size),
+        (112.9000 + offset, 28.2000 + size),
     ]
     return BuildingFeature(
         osm_type="way",
@@ -267,6 +272,30 @@ def test_missing_heights_are_sampled_from_the_area_distribution():
         assert 9.0 * 0.9 - 1e-9 <= heights[osm_id] <= 60.0 * 1.1 + 1e-9
     assert prepared.height_sampling["known"] == 2
     assert prepared.height_sampling["sampled"] == 3
+
+
+def test_sampled_heights_follow_footprint_size():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "4"}, 0.000, size=0.0004),
+        _feature(2, {"building": "yes", "height": "100"}, 0.002, size=0.006),
+        _feature(3, {"building": "yes"}, 0.010, size=0.0004),
+        _feature(4, {"building": "yes"}, 0.012, size=0.006),
+    ]
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=2,
+        height_seed=7,
+    )
+
+    heights = {item.osm_id: item.height_m for item in prepared.items}
+    # The small shed draws from the small tagged building, the large footprint
+    # from the tower; a uniform pool would mix 4 m and 100 m for both.
+    assert heights[3] < 20.0
+    assert heights[4] > 80.0
+    assert prepared.height_sampling["area_weighted"] is True
 
 
 def test_missing_heights_fall_back_to_the_default_without_enough_samples():

@@ -93,7 +93,15 @@ For each footprint, height is resolved in this order:
 1. **`height` tag.** Examples: `12`, `12 m`, `12.5m`, `40'` (feet). The parser
    extracts the first number and converts feet to metres.
 2. **Levels.** `building:levels × level_height`, plus `roof:height` if present.
-3. **Default.** `default_height_m` (25 m by default).
+3. **Sampled.** If at least `height_sampling_min_samples` buildings in the
+   selection carry a height or level tag, an untagged building draws from those
+   observations with ±`height_sampling_jitter` (10 % by default) jitter and a
+   deterministic seed. Observations from buildings whose footprint area is
+   within 0.25–4× the target footprint are preferred; when none match, the
+   whole pool is used. `metadata.json → buildings.height_sampling` records the
+   pool size, `area_weighted`, `area_ratio`, and how many buildings were
+   sampled.
+4. **Default.** `default_height_m` (25 m) when too few tagged heights exist.
 
 `min_height` raises the base of the prism. If a height is outside the accepted
 range it is clamped and a `HEIGHT_CLAMPED` warning is emitted. A missing height

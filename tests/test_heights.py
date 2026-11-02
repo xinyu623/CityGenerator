@@ -127,3 +127,29 @@ def test_height_sampler_without_values_is_not_usable():
     assert not sampler.usable
     with pytest.raises(ValueError):
         sampler.draw()
+
+
+def test_height_sampler_prefers_heights_from_similar_footprints():
+    sampler = HeightSampler(
+        [(4.0, 20.0), (12.0, 200.0), (100.0, 5000.0)],
+        jitter=0.0,
+        seed=5,
+    )
+
+    assert {sampler.draw(30.0) for _ in range(50)} == {4.0}
+    assert {sampler.draw(2500.0) for _ in range(50)} == {100.0}
+
+
+def test_height_sampler_falls_back_to_all_heights_without_a_size_match():
+    sampler = HeightSampler([(4.0, 20.0), (100.0, 5000.0)], jitter=0.0, seed=1)
+
+    values = {sampler.draw(1_000_000.0) for _ in range(200)}
+
+    assert values == {4.0, 100.0}
+
+
+def test_height_sampler_accepts_plain_heights_and_ignores_the_area():
+    sampler = HeightSampler([12.0, 60.0], jitter=0.0, seed=0)
+
+    assert sampler.draw(2500.0) in {12.0, 60.0}
+    assert sampler.area_weighted is False
