@@ -198,6 +198,8 @@ def run_pipeline(
             height_jitter=settings.height_sampling_jitter,
             height_seed=settings.height_sampling_seed,
             min_height_samples=settings.height_sampling_min_samples,
+            height_conservative=settings.height_sampling_conservative,
+            height_slenderness_k=settings.height_sampling_slenderness_k,
             progress_cb=prepare_progress,
             cancel_event=cancel,
         )

@@ -6,10 +6,13 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from shapely.geometry import Polygon
 
 from app.config import Settings
 from app.models.schemas import BBox, GenerateOptions, GenerateRequest, TerrainOptions
+from app.services.buildings import BuildingRecord, BuildResult
 from app.services.errors import AreaTooLargeError, NoBuildingsError
+from app.services.output import _geojson
 from app.services.overpass import OverpassResult
 from app.services.pipeline import run_pipeline
 from app.services.stl_export import load_stl_bytes, non_manifold_edge_count
@@ -240,6 +243,40 @@ def test_pipeline_rejects_oversized_area(tmp_path, monkeypatch):
             cancel_event=threading.Event(),
         )
     assert called["fetch"] is False
+
+
+def test_geojson_marks_the_sampling_rule_only_for_sampled_buildings():
+    polygon = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    sampled = BuildingRecord(
+        osm_type="way",
+        osm_id=1,
+        tags={},
+        source_geometry=polygon,
+        polygon_local=polygon,
+        height_m=12.0,
+        base_m=0.0,
+        height_source="sampled",
+        area_m2=100.0,
+        mesh=None,  # type: ignore[arg-type]
+        height_rule="similarity",
+    )
+    tagged = BuildingRecord(
+        osm_type="way",
+        osm_id=2,
+        tags={},
+        source_geometry=polygon,
+        polygon_local=polygon,
+        height_m=20.0,
+        base_m=0.0,
+        height_source="tag",
+        area_m2=100.0,
+        mesh=None,  # type: ignore[arg-type]
+    )
+
+    features = _geojson(BuildResult(records=[sampled, tagged]))["features"]
+
+    assert features[0]["properties"]["height_rule"] == "similarity"
+    assert "height_rule" not in features[1]["properties"]
 
 
 def test_pipeline_reports_no_buildings(tmp_path, monkeypatch):

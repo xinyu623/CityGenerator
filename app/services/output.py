@@ -171,22 +171,25 @@ def _terrain_metadata(
 def _geojson(build_result: BuildResult) -> dict[str, Any]:
     features = []
     for record in build_result.records:
+        properties: dict[str, Any] = {
+            "osm_type": record.osm_type,
+            "osm_id": record.osm_id,
+            "height_m": round(record.height_m, 3),
+            "base_m": round(record.base_m, 3),
+            "height_source": record.height_source,
+            "area_m2": round(record.area_m2, 3),
+            "ground_m": round(record.ground_m, 3),
+            "roof_m": round(record.ground_m + record.height_m, 3),
+            "footprint_relief_m": round(record.footprint_relief_m, 3),
+            "tags": _selected_tags(record.tags),
+        }
+        if record.height_rule:
+            properties["height_rule"] = record.height_rule
         features.append(
             {
                 "type": "Feature",
                 "geometry": mapping(record.source_geometry),
-                "properties": {
-                    "osm_type": record.osm_type,
-                    "osm_id": record.osm_id,
-                    "height_m": round(record.height_m, 3),
-                    "base_m": round(record.base_m, 3),
-                    "height_source": record.height_source,
-                    "area_m2": round(record.area_m2, 3),
-                    "ground_m": round(record.ground_m, 3),
-                    "roof_m": round(record.ground_m + record.height_m, 3),
-                    "footprint_relief_m": round(record.footprint_relief_m, 3),
-                    "tags": _selected_tags(record.tags),
-                },
+                "properties": properties,
             }
         )
     return {"type": "FeatureCollection", "features": features}

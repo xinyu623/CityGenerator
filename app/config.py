@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     height_sampling_min_samples: int = 5
     height_sampling_jitter: float = 0.1
     height_sampling_seed: int = 0
+    # Optional calmer skyline: cap a sampled height at k * sqrt(footprint area).
+    # Off by default; k = 8 keeps ordinary buildings and trims only the
+    # implausibly slender tail.
+    height_sampling_conservative: bool = False
+    height_sampling_slenderness_k: float = 8.0
 
     # Terrain / DEM elevation source.
     terrain_enabled_default: bool = True

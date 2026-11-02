@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.cli import _summary, main, parse_bbox
+from app.cli import _summary, build_parser, main, parse_bbox
 from app.services.errors import OverpassError
 from app.services.overpass import OverpassResult
 from app.services.pipeline import PipelineResult
@@ -93,8 +93,51 @@ def test_cli_reports_a_pipeline_error(tmp_path, monkeypatch, capsys):
     assert "Overpass 不可用" in capsys.readouterr().err
 
 
+def test_cli_parser_accepts_the_conservative_height_flags():
+    args = build_parser().parse_args(
+        ["--bbox", "1,2,3,4", "--out", "x", "--conservative-heights", "--slenderness-k", "6"]
+    )
+
+    assert args.conservative_heights is True
+    assert args.slenderness_k == pytest.approx(6.0)
+
+
+def test_cli_passes_the_conservative_height_settings_to_the_pipeline(tmp_path, monkeypatch):
+    import app.services.pipeline as pipeline_module
+
+    captured: dict[str, object] = {}
+    real_prepare = pipeline_module.prepare_buildings
+
+    def spy(features, projector, **kwargs):
+        captured.update(kwargs)
+        return real_prepare(features, projector, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "prepare_buildings", spy)
+    monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", _fake_fetch(FIXTURE))
+
+    code = main(
+        [
+            "--bbox",
+            BBOX,
+            "--out",
+            str(tmp_path / "job"),
+            "--no-terrain",
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--conservative-heights",
+            "--slenderness-k",
+            "6",
+        ]
+    )
+
+    assert code == 0
+    assert captured["height_conservative"] is True
+    assert captured["height_slenderness_k"] == pytest.approx(6.0)
+
+
 def test_summary_prints_on_a_gbk_console(tmp_path, capsys):
     # Windows consoles default to GBK, which has no "²"; a finished job must
+    # still print its summary there instead of crashing after the work is done.
     # still print its summary there instead of crashing after the work is done.
     result = PipelineResult(
         stats={
