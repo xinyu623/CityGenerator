@@ -50,7 +50,7 @@ the first DEM tile request, and for the basemap/Three.js CDN assets.
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ```bash
@@ -58,11 +58,12 @@ uvicorn app.main:app --reload --port 8000
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Open <http://127.0.0.1:8000/>. Use **Select area**, click two opposite corners,
-adjust settings, and press **Generate STL**.
+adjust settings, and press **Generate STL**. Do not add `--reload` while a job is
+running: a reload restarts the server and kills in-flight jobs.
 
 The UI is in Chinese; code, comments, metadata keys, and this README are in
 English. A Chinese translation is available in [README.zh-CN.md](README.zh-CN.md).
@@ -135,7 +136,8 @@ the file in order.
    and adds a small solid weld box (0.4 m padding) around each cluster before
    re-running the union. The number of boxes is recorded as
    `city.weld_repairs`.
-6. The written STL is loaded again and must pass watertightness, consistent
+6. The fused city is exported to binary STL and read back once; the read-back
+   file is what gets written, and it must pass watertightness, consistent
    winding, finite vertices, positive volume, and zero non-manifold edges. A
    failure is reported as `CITY_UNION_FAILED`; the pipeline never silently falls
    back to a concatenated triangle soup.

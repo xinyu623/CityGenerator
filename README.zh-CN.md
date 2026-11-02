@@ -42,7 +42,7 @@ Three.js CDN 资源需要联网。
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ```bash
@@ -50,11 +50,12 @@ uvicorn app.main:app --reload --port 8000
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 打开 <http://127.0.0.1:8000/>，点击 **框选区域**，依次点击矩形对角两点，
-调整参数后点击 **生成 STL**。
+调整参数后点击 **生成 STL**。有任务在运行时不要加 `--reload`：代码变动会重启
+服务并杀掉正在执行的任务。
 
 界面为中文；代码、注释、元数据字段和英文 README 使用英文。中文说明即本文
 件。
@@ -118,9 +119,9 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
    几何上就是非流形的。流水线会在 STL 回读后定位这些具体的边，把相邻的
    坏边聚类，并在每簇周围加入一个带 `0.4 m` 余量的实体“焊接盒”，再重新
    做并集。补丁数量记录在 `city.weld_repairs`。
-6. 写出的 STL 会被重新读入，必须通过水密、法线一致、顶点有限、体积为正、
-   非流形边为零的检查。失败会返回 `CITY_UNION_FAILED`；不会静默退化为
-   简单拼接的三角面片。
+6. 融合结果只导出一次并回读；写出的就是这份通过检查的文件，它必须通过水密、
+   法线一致、顶点有限、体积为正、非流形边为零的检查。失败会返回
+   `CITY_UNION_FAILED`；不会静默退化为简单拼接的三角面片。
 
 大多数城市模型不需要补丁，或只需要少量补丁。它们只修复局部接触，不改变
 整体建筑布局。

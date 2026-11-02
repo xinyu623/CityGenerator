@@ -46,6 +46,8 @@ static files are included in the Python package via `pyproject.toml`.
 | `app/services/ground.py` | Flat solid ground slab (terrain disabled). |
 | `app/services/city.py` | Manifold boolean union, contact weld repair, closed-city validation. |
 | `app/services/stl_export.py` | Binary STL writer/reader, validation, non-manifold edge count. |
+| `app/services/patches.py` | `ground`/`wall`/`bottom` triangle classification and contiguous STL ranges. |
+| `app/services/height_report.py` | Sampled-height tail report and `--check` for a finished job. |
 | `app/services/output.py` | Metadata, GeoJSON, README, ZIP, file inventory. |
 | `app/services/pipeline.py` | Orchestrates stages, progress, cancellation, warnings. |
 | `app/services/jobs.py` | Disk state, thread pool, cancel/delete, recovery, cleanup. |
@@ -418,7 +420,7 @@ cleanup, extrusion, and STL writing. For a 671-building / 0.98 km² area
 `build`, `ground`, `fuse`, `export`, and `total` for every run (a snapshot taken
 just before `metadata.json` is written; the zip comes after).
 
-For the cached 4×4 km Chongqing sample (1 696 buildings, 87 388 triangles,
+For the cached 4×4 km Chongqing sample (1 698 buildings, 87 634 triangles,
 39 460 terrain triangles) the run is now ≈4.3 s on an unloaded machine
 (`build` ≈0.89 s, `fuse` ≈0.81 s, `export` ≈0.34 s); the same interleaved
 protocol measured the baseline at ≈5.8 s. Profiling found the per-shell

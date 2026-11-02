@@ -294,10 +294,10 @@ The file has this shape:
 {
   "schema_version": "1.0",
   "unit": "m",
-  "triangle_count": 87388,
+  "triangle_count": 87634,
   "ground_tolerance_m": 0.05,
   "ground_normal_dot_min": 0.9,
-  "counts": {"ground": 54518, "wall": 32322, "bottom": 548},
+  "counts": {"ground": 54539, "wall": 32547, "bottom": 548},
   "ranges": [
     {"start": 0, "count": 11, "kind": "wall"},
     {"start": 11, "count": 3, "kind": "ground"}

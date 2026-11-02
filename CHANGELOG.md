@@ -44,8 +44,10 @@ All notable changes to CityGenerator are recorded here.
   `extrude_building` already measured, and only a repaired shell is measured
   again. Interleaved before/after on the cached 4×4 km sample (two runs per
   side): `build` 2.03 → 0.89 s, `fuse` 0.81 → 0.81 s, `export` 0.63 → 0.34 s,
-  `total` 5.77 → 4.29 s; the written `city.stl` is byte-identical (87 388
-  triangles, volume 1.33733e9 m³, 0 weld repairs, patches unchanged).
+  `total` 5.77 → 4.29 s; the written `city.stl` was byte-identical to the
+  pre-refactor output (87 388 triangles, volume 1.33733e9 m³, 0 weld repairs,
+  patches unchanged). The base-floor fix below adds two buildings, so the 2.2.0
+  reference is 87 634 triangles.
 - CI now has a `windows-latest` job next to the Ubuntu one — the GBK console bug
   was Windows-only and the docs are PowerShell-first — and both jobs carry
   `timeout-minutes`. `tests/golden/city_300m.json` records the versions that
