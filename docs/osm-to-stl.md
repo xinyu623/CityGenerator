@@ -235,9 +235,9 @@ The file has this shape:
 {
   "schema_version": "1.0",
   "unit": "m",
-  "triangle_count": 81864,
+  "triangle_count": 84654,
   "ground_tolerance_m": 0.05,
-  "counts": {"ground": 53041, "wall": 28275, "bottom": 548},
+  "counts": {"ground": 53673, "wall": 30433, "bottom": 548},
   "ranges": [
     {"start": 0, "count": 11, "kind": "wall"},
     {"start": 11, "count": 3, "kind": "ground"}

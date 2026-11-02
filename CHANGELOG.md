@@ -17,7 +17,9 @@ All notable changes to CityGenerator are recorded here.
   pool when nothing matches. `metadata.json → buildings.height_sampling` gains
   `area_weighted` and `area_ratio`. On the 4×4 km sample the sampled heights
   correlate with footprint area (log-log Pearson 0.36; median 3.1 m under
-  2 000 m² vs 33.5 m above), where before a shed could draw a tower height.
+  2 000 m² vs 33.5 m above), where before a shed could draw a tower height. The
+  changed heights move that sample to 84 654 triangles and 1.35378e9 m³ (from
+  81 864 and 1.32476e9), with zero welds and a watertight surface.
 - `patches.json` now ships next to `city.stl`: contiguous triangle ranges
   labelled `ground` (upward and within `CITYGEN_PATCH_GROUND_TOLERANCE_M` =
   0.05 m of the terrain surface), `wall` (building walls, roofs, and the
@@ -26,8 +28,8 @@ All notable changes to CityGenerator are recorded here.
   without splitting the closed surface. Metadata gains a `patches` block with
   the counts, tolerance, and range count; the file is listed in
   `metadata.json → files`, `result.zip`, and `README.txt`. On the 4×4 km sample:
-  53 041 ground / 28 275 wall / 548 bottom triangles (993 ranges); on the
-  0.74 km² sample: 10 303 / 22 317 / 146 (471 ranges).
+  53 673 ground / 30 433 wall / 548 bottom triangles (910 ranges); on the
+  0.74 km² sample: 10 420 / 22 554 / 146 (479 ranges).
 - A large selection no longer fails when one Overpass chunk keeps timing out:
   after the endpoint retries are exhausted the cell is retried as four sub-cells,
   recursively at most `CITYGEN_OVERPASS_SPLIT_MAX_DEPTH` levels (2) and never
