@@ -177,6 +177,10 @@ def run_pipeline(
             level_height_m=request.options.level_height_m,
             simplify_m=request.options.simplify_m,
             min_building_area_m2=request.options.min_building_area_m2,
+            sample_missing_heights=settings.height_sampling_enabled,
+            height_jitter=settings.height_sampling_jitter,
+            height_seed=settings.height_sampling_seed,
+            min_height_samples=settings.height_sampling_min_samples,
             progress_cb=prepare_progress,
             cancel_event=cancel,
         )
@@ -228,6 +232,7 @@ def run_pipeline(
             prepared,
             terrain=terrain,
             embed_depth_m=request.options.embed_depth_m,
+            contact_overlap_m=settings.contact_overlap_m,
             progress_cb=build_progress,
             cancel_event=cancel,
         )

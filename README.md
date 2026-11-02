@@ -61,6 +61,28 @@ adjust settings, and press **Generate STL**.
 The UI is in Chinese; code, comments, metadata keys, and this README are in
 English. A Chinese translation is available in [README.zh-CN.md](README.zh-CN.md).
 
+### Headless CLI
+
+The generation pipeline does not need the web server. After `pip install -e .`:
+
+```powershell
+citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
+```
+
+Without installing the console script:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
+```
+
+`--bbox` is `south,west,north,east`. Other flags mirror the request options:
+`--height`, `--level-height`, `--embed`, `--ground-margin`, `--simplify`,
+`--min-area`, `--terrain-resolution`, `--no-terrain`, `--refresh`,
+`--data-dir` (cache root), and `--quiet`. The CLI writes the same
+`city.stl`/`metadata.json`/`buildings.geojson`/`README.txt`/`result.zip` bundle
+into `<out>/output/` and returns a non-zero exit code with the error code on
+failure, so it can be used from batch scripts.
+
 ## Output
 
 A completed job contains:
@@ -209,10 +231,12 @@ Useful `metadata.json → terrain` fields:
    The underside of the terrain block is a valid closed boundary. With terrain
    enabled the ground surface is not flat: buildings on slopes are cut by the
    hill, which is the intended obstacle shape but will add near-wall cells.
-5. Check `MISSING_HEIGHT`, `HEIGHT_CLAMPED`, and `STEEP_FOOTPRINT` warnings. The
-   default 25 m height is a placeholder, not a surveyed value.
+5. Check `MISSING_HEIGHT`, `HEIGHT_CLAMPED`, and `STEEP_FOOTPRINT` warnings.
+   Buildings without a height tag draw from the selection's own OSM height
+   distribution (`buildings.height_sampling`), so the skyline is locally
+   plausible but still estimated, not surveyed.
 6. Review `city.weld_repairs` if you need to know whether touching footprints
-   required local contact repairs.
+   required local contact repairs. A healthy run needs `0`.
 7. If your mesh generator struggles with the terrain block, re-run with terrain
    disabled or a coarser `terrain.resolution_m`; the flat slab uses far fewer
    triangles.
@@ -284,6 +308,11 @@ CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
+CITYGEN_CONTACT_OVERLAP_M=0.1
+CITYGEN_HEIGHT_SAMPLING_ENABLED=true
+CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
+CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
+CITYGEN_HEIGHT_SAMPLING_SEED=0
 CITYGEN_TERRAIN_ENABLED_DEFAULT=true
 CITYGEN_TERRAIN_RESOLUTION_M=25
 CITYGEN_MAX_TERRAIN_CELLS=80000
@@ -300,7 +329,9 @@ Useful defaults:
   ellipsoid), fetched as several Overpass requests of at most
   `overpass_chunk_area_km2 = 4 km²` each, then merged.
 - Maximum accepted buildings: `20,000`.
-- Default height: `25 m`; level height: `3 m`.
+- Default height: `25 m` for the rare selection that has too few tagged heights;
+  otherwise untagged buildings sample the local OSM height distribution
+  (`height_sampling_jitter = 10 %`). Level height: `3 m`.
 - Bottom embed depth: `0.5 m`; polygon simplification: `0.05 m`.
 - Ground slab thickness: `1 m`.
 - Terrain: enabled, `30 m` grid, `150 m` median smoothing, max `80,000` cells,

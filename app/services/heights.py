@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+import random
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,3 +114,46 @@ def resolve_height(
         base = max(0.0, height - 0.5)
 
     return HeightInfo(height_m=height, base_m=base, source=source, clamped=clamped)
+
+
+class HeightSampler:
+    """Draw plausible heights from the local OSM height distribution.
+
+    Cities differ a lot: a Chongqing block mixes 6-storey walk-ups with 40-storey
+    towers, a small town is nearly all 3-4 storeys. Giving every untagged
+    building the same global default flattens that. Instead, sample the heights
+    of the tagged buildings in the same selection, with a small jitter so the
+    result does not repeat only a handful of exact values.
+    """
+
+    def __init__(
+        self,
+        known: Iterable[float],
+        *,
+        jitter: float = 0.1,
+        seed: int = 0,
+    ) -> None:
+        values: list[float] = []
+        for value in known:
+            height = float(value)
+            if 2.0 <= height <= 300.0:
+                values.append(height)
+        self._values = sorted(values)
+        self._jitter = max(0.0, float(jitter))
+        self._rng = random.Random(int(seed))
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    @property
+    def usable(self) -> bool:
+        return bool(self._values)
+
+    def draw(self) -> float:
+        """One height in metres, jittered around a local observation."""
+
+        if not self._values:
+            raise ValueError("height sampler has no known heights")
+        base = self._rng.choice(self._values)
+        value = base * (1.0 + self._rng.uniform(-self._jitter, self._jitter))
+        return min(300.0, max(2.0, value))

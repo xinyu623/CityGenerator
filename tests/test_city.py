@@ -56,7 +56,9 @@ def test_edge_touching_buildings_survive_stl_roundtrip() -> None:
     fused = fuse_city([first, second], _slab())
     loaded = load_stl_bytes(export_stl_bytes(fused.mesh))
 
-    assert fused.weld_repairs > 0
+    # Manifold closes edge contacts and sub-float32 vertex pairs are nudged
+    # apart before the round-trip, so no weld boxes are needed here.
+    assert fused.weld_repairs == 0
     assert loaded.is_watertight
     assert non_manifold_edge_count(loaded) == 0
 

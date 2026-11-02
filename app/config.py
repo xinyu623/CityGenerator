@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     simplify_m: float = 0.05
     min_building_area_m2: float = 4.0
     ground_slab_thickness_m: float = 1.0
+    # Touching footprints are grown by half of this before extrusion so their
+    # volumes genuinely overlap. That keeps the union manifold without the old
+    # 0.4 m weld boxes; 0 disables it.
+    contact_overlap_m: float = 0.1
+    # Untagged buildings draw from the selection's own OSM height distribution
+    # instead of all sharing one global default.
+    height_sampling_enabled: bool = True
+    height_sampling_min_samples: int = 5
+    height_sampling_jitter: float = 0.1
+    height_sampling_seed: int = 0
 
     # Terrain / DEM elevation source.
     terrain_enabled_default: bool = True

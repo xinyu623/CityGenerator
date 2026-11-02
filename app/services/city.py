@@ -20,6 +20,50 @@ MANIFOLD_ENGINE = "manifold"
 MAX_WELD_PASSES = 8
 WELD_CLUSTER_RADIUS_M = 0.5
 WELD_PAD_M = 0.4
+# Binary STL stores float32 coordinates: at a 4 km extent two vertices less than
+# ~0.5 mm apart round to the same point, which turns their long edges into edges
+# shared by four faces after the file is read back. Nudge one vertex of such a
+# pair by COLLAPSE_SHIFT_M so the round-trip keeps the original topology.
+COLLAPSE_TOLERANCE_M = 5e-4
+COLLAPSE_SHIFT_M = 1e-3
+
+
+def separate_collapsed_vertices(
+    mesh: trimesh.Trimesh,
+    tolerance_m: float = COLLAPSE_TOLERANCE_M,
+    shift_m: float = COLLAPSE_SHIFT_M,
+) -> int:
+    """Move one vertex of every sub-tolerance pair; return how many moved.
+
+    The mesh stays topologically identical (watertight, manifold); only a few
+    vertices shift by about a millimetre, far below any modelling scale.
+    """
+
+    if tolerance_m <= 0.0 or not len(mesh.vertices):
+        return 0
+    vertices = mesh.vertices
+    cells = np.floor(vertices / tolerance_m).astype(np.int64)
+    buckets: dict[tuple[int, int, int], list[int]] = {}
+    for index, cell in enumerate(map(tuple, cells)):
+        buckets.setdefault(cell, []).append(index)
+
+    moved = 0
+    offsets = [
+        (dx, dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)
+    ]
+    for index in range(len(vertices)):
+        cell = cells[index]
+        key = (int(cell[0]), int(cell[1]), int(cell[2]))
+        for dx, dy, dz in offsets:
+            for other in buckets.get((key[0] + dx, key[1] + dy, key[2] + dz), ()):
+                if other <= index:
+                    continue
+                if np.linalg.norm(vertices[other] - vertices[index]) < tolerance_m:
+                    vertices[other] += np.array([shift_m, shift_m, 0.0])
+                    moved += 1
+    if moved:
+        mesh.vertices = vertices
+    return moved
 
 
 @dataclass(frozen=True)
@@ -156,6 +200,7 @@ def fuse_city(
 
         if not isinstance(fused, trimesh.Trimesh):
             raise CityUnionError("布尔融合返回了非网格结果")
+        separate_collapsed_vertices(fused)
         validate_city(fused)
 
         if _stl_roundtrip_is_closed(fused):

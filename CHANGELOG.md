@@ -2,6 +2,25 @@
 
 All notable changes to CityGenerator are recorded here.
 
+## [Unreleased]
+
+- Headless CLI: `citygen --bbox s,w,n,e --out DIR` (or `python -m app.cli`)
+  runs the whole pipeline without uvicorn and returns a non-zero exit code with
+  the error code on failure.
+- Touching footprints are grown by `CITYGEN_CONTACT_OVERLAP_M` (0.1 m total)
+  before extrusion, so neighbouring buildings share real volume instead of
+  meeting at a zero-thickness edge.
+- Untagged buildings now sample their height from the selection's own OSM
+  heights (`CITYGEN_HEIGHT_SAMPLING_*`, ±10 % jitter, deterministic seed) instead
+  of all receiving the same 25 m default. Selections with fewer than
+  `height_sampling_min_samples` known heights keep the old fallback.
+  `metadata.json → buildings.height_sampling` records the pool size, jitter,
+  seed, and how many buildings were sampled.
+- Binary-STL float32 collapse fixed: vertices closer than 0.5 mm are nudged
+  apart before export, so the round-trip no longer invents non-manifold edges.
+  The 4×4 km sample needs **0 weld repairs** (was 50) and 81 864 triangles
+  (was 112 380).
+
 ## [2.0.0] - 2026-11-02
 
 Terrain relief. The city now sits on a real DEM surface instead of a flat slab,

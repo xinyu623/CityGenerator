@@ -55,6 +55,26 @@ uvicorn app.main:app --reload --port 8000
 界面为中文；代码、注释、元数据字段和英文 README 使用英文。中文说明即本文
 件。
 
+### 命令行（无需启动服务）
+
+后端流水线本身不依赖 FastAPI。`pip install -e .` 之后可以直接：
+
+```powershell
+citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
+```
+
+未安装命令行脚本时：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
+```
+
+`--bbox` 顺序为 `south,west,north,east`；其余参数与请求选项一致：
+`--height`、`--level-height`、`--embed`、`--ground-margin`、`--simplify`、
+`--min-area`、`--terrain-resolution`、`--no-terrain`、`--refresh`、
+`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
+下的 `city.stl` 等五个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
+
 ## 输出内容
 
 任务完成后包含：
@@ -185,9 +205,10 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
 4. 地面已经包含在实体中，不需要再封闭开放的地面片；地形块下表面本身就是
    闭合边界。开启地形后地面不再平整，坡地上的建筑会被山体切掉一部分，这是
    预期的障碍物形状，但会增加近地面网格量。
-5. 检查 `MISSING_HEIGHT`、`HEIGHT_CLAMPED` 和 `STEEP_FOOTPRINT` 警告。默认
-   25 m 是占位值，不是实测高度。
-6. 如需了解是否有建筑轮廓发生接触修复，查看 `city.weld_repairs`。
+5. 检查 `MISSING_HEIGHT`、`HEIGHT_CLAMPED` 和 `STEEP_FOOTPRINT` 警告。缺少
+   高度标签的建筑会从本区域 OSM 已知高度中随机取值（`buildings.height_sampling`），
+   天际线更贴近本地实际，但仍然是估计值，不是实测高度。
+6. 如需了解是否有建筑轮廓发生接触修复，查看 `city.weld_repairs`；正常结果应为 `0`。
 7. 如果网格工具处理地形块较吃力，可关闭地形重跑，或把
    `terrain.resolution_m` 调粗；平整底座的三角形数少得多。
 8. 本工具只输出表面 STL，不生成体网格、边界层、湍流参数或求解器算例。
@@ -251,6 +272,11 @@ CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
+CITYGEN_CONTACT_OVERLAP_M=0.1
+CITYGEN_HEIGHT_SAMPLING_ENABLED=true
+CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
+CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
+CITYGEN_HEIGHT_SAMPLING_SEED=0
 CITYGEN_TERRAIN_ENABLED_DEFAULT=true
 CITYGEN_TERRAIN_RESOLUTION_M=25
 CITYGEN_MAX_TERRAIN_CELLS=80000
@@ -266,7 +292,8 @@ CITYGEN_DEM_MAX_RETRIES=3
 - 最大框选面积：`17 km²`（正好 4 × 4 km 在椭球面上是 16.005 km²），按
   `overpass_chunk_area_km2 = 4 km²` 分块请求后合并。
 - 最大建筑数：`20,000`。
-- 默认高度：`25 m`；层高：`3 m`。
+- 默认高度：`25 m`（仅当本区域已知高度太少时使用；否则缺失高度从本地 OSM
+  高度分布中随机取值，抖动 `10 %`）；层高：`3 m`。
 - 底部下沉深度：`0.5 m`；轮廓简化：`0.05 m`。
 - 地面底座厚度：`1 m`。
 - 地形：默认开启，网格 `30 m`，`150 m` 中值平滑，最多 `80,000` 个格点，

@@ -96,6 +96,8 @@ def _build_metadata(
             "default_height_m": request.options.default_height_m,
             "level_height_m": request.options.level_height_m,
             "embed_depth_m": request.options.embed_depth_m,
+            "contact_overlap_m": settings.contact_overlap_m,
+            "height_sampling": build_result.height_sampling,
             "each_shell_watertight": all(
                 record.mesh.is_watertight for record in build_result.records
             ),

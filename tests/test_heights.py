@@ -4,7 +4,13 @@ import math
 
 import pytest
 
-from app.services.heights import HeightInfo, parse_length_m, parse_levels, resolve_height
+from app.services.heights import (
+    HeightInfo,
+    HeightSampler,
+    parse_length_m,
+    parse_levels,
+    resolve_height,
+)
 
 
 @pytest.mark.parametrize(
@@ -93,3 +99,31 @@ def test_resolve_height_never_below_base():
     info = resolve_height({"height": "5", "min_height": "4.5"})
     assert info.height_m > info.base_m
     assert not math.isclose(info.height_m, info.base_m)
+
+
+def test_height_sampler_draws_near_the_known_values():
+    sampler = HeightSampler([12.0, 60.0, 9.0], jitter=0.1, seed=3)
+
+    values = [sampler.draw() for _ in range(200)]
+    assert all(2.0 <= value <= 300.0 for value in values)
+    assert min(values) >= 9.0 * 0.9 - 1e-9
+    assert max(values) <= 60.0 * 1.1 + 1e-9
+
+
+def test_height_sampler_is_deterministic_for_a_seed():
+    first = [HeightSampler([15.0, 30.0], seed=11).draw() for _ in range(5)]
+    second = [HeightSampler([15.0, 30.0], seed=11).draw() for _ in range(5)]
+    assert first == second
+
+
+def test_height_sampler_ignores_out_of_range_values():
+    sampler = HeightSampler([0.5, 1.0, 40.0, 500.0], seed=0)
+    assert len(sampler) == 1
+    assert sampler.draw() == pytest.approx(40.0, rel=0.1)
+
+
+def test_height_sampler_without_values_is_not_usable():
+    sampler = HeightSampler([], seed=0)
+    assert not sampler.usable
+    with pytest.raises(ValueError):
+        sampler.draw()

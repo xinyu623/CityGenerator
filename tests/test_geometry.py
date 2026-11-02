@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import trimesh
 from shapely.geometry import Polygon
 
-from app.services.buildings import clean_polygons, detect_overlaps, extrude_building
+from app.services.buildings import (
+    PreparedBuilding,
+    PreparedBuildings,
+    clean_polygons,
+    detect_overlaps,
+    extrude_building,
+    extrude_prepared,
+    prepare_buildings,
+)
+from app.services.city import fuse_city, separate_collapsed_vertices
 from app.services.ground import build_ground
+from app.services.osm_parse import BuildingFeature
+from app.services.projection import projector_for_bbox
 from app.services.stl_export import (
     export_stl_bytes,
     load_stl_bytes,
@@ -128,3 +140,140 @@ def test_non_manifold_edge_count_detects_touching_shells():
     combined = trimesh.util.concatenate([left, right])
     combined.merge_vertices()
     assert non_manifold_edge_count(combined) > 0
+
+
+def _prepared(*polygons: Polygon, height: float = 12.0) -> PreparedBuildings:
+    return PreparedBuildings(
+        items=[
+            PreparedBuilding(
+                osm_type="way",
+                osm_id=index + 1,
+                tags={"building": "yes"},
+                source_geometry=polygon,
+                polygon_local=polygon,
+                height_m=height,
+                base_m=0.0,
+                height_source="tag",
+                area_m2=polygon.area,
+            )
+            for index, polygon in enumerate(polygons)
+        ]
+    )
+
+
+def test_corner_touching_buildings_fuse_without_a_weld():
+    # The two shells meet along one vertical edge: no common interior, so the
+    # raw union is not manifold. A 0.1 m contact overlap gives them real shared
+    # volume and the weld repair pass is no longer needed.
+    left = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    right = Polygon([(10, 10), (20, 10), (20, 20), (10, 20)])
+    built = extrude_prepared(_prepared(left, right), terrain=None, contact_overlap_m=0.1)
+    city = fuse_city(built.meshes, build_ground((0, 0, 20, 20), mode="slab", thickness_m=1.0))
+
+    assert city.mesh.is_watertight
+    assert city.weld_repairs == 0
+
+
+def test_corner_touching_buildings_fuse_without_welds():
+    # Manifold returns a closed union for edge/corner contacts and the STL
+    # round-trip no longer collapses their near-coincident vertices, so neither
+    # the contact overlap nor a weld repair box is required to close the city.
+    left = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    right = Polygon([(10, 10), (20, 10), (20, 20), (10, 20)])
+    built = extrude_prepared(_prepared(left, right), terrain=None, contact_overlap_m=0.0)
+    city = fuse_city(built.meshes, build_ground((0, 0, 20, 20), mode="slab", thickness_m=1.0))
+
+    assert city.mesh.is_watertight
+    assert city.weld_repairs == 0
+
+
+def test_isolated_buildings_are_not_grown_by_the_contact_overlap():
+    near = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    far = Polygon([(50, 0), (60, 0), (60, 10), (50, 10)])
+    built = extrude_prepared(_prepared(near, far), terrain=None, contact_overlap_m=0.1)
+
+    assert built.meshes[0].volume == pytest.approx(10.0 * 10.0 * 12.5)
+    assert built.meshes[1].volume == pytest.approx(10.0 * 10.0 * 12.5)
+
+
+def test_separate_collapsed_vertices_moves_sub_millimetre_pairs():
+    mesh = trimesh.Trimesh(
+        vertices=[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0002, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [2.0, 1.0, 0.0],
+        ],
+        faces=[[0, 1, 2], [3, 4, 5]],
+        process=False,
+    )
+    moved = separate_collapsed_vertices(mesh)
+
+    assert moved == 1
+    assert float(np.linalg.norm(mesh.vertices[3] - mesh.vertices[0])) >= 1e-3
+
+
+def _feature(osm_id: int, tags: dict[str, str], offset: float = 0.0) -> BuildingFeature:
+    ring = [
+        (112.9000 + offset, 28.2000),
+        (112.9005 + offset, 28.2000),
+        (112.9005 + offset, 28.2005),
+        (112.9000 + offset, 28.2005),
+    ]
+    return BuildingFeature(
+        osm_type="way",
+        osm_id=osm_id,
+        tags=tags,
+        geometry=Polygon(ring),
+    )
+
+
+def test_missing_heights_are_sampled_from_the_area_distribution():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "12"}, 0.000),
+        _feature(2, {"building": "yes", "building:levels": "20"}, 0.002),
+        _feature(3, {"building": "yes"}, 0.004),
+        _feature(4, {"building": "yes"}, 0.006),
+        _feature(5, {"building": "yes"}, 0.008),
+    ]
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=2,
+        height_seed=7,
+    )
+
+    heights = {item.osm_id: item.height_m for item in prepared.items}
+    sources = {item.osm_id: item.height_source for item in prepared.items}
+    assert sources[1] == "tag" and heights[1] == pytest.approx(12.0)
+    assert sources[2] == "levels" and heights[2] == pytest.approx(60.0)
+    for osm_id in (3, 4, 5):
+        assert sources[osm_id] == "sampled"
+        assert heights[osm_id] != pytest.approx(25.0)
+        assert 9.0 * 0.9 - 1e-9 <= heights[osm_id] <= 60.0 * 1.1 + 1e-9
+    assert prepared.height_sampling["known"] == 2
+    assert prepared.height_sampling["sampled"] == 3
+
+
+def test_missing_heights_fall_back_to_the_default_without_enough_samples():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "12"}, 0.000),
+        _feature(2, {"building": "yes"}, 0.002),
+        _feature(3, {"building": "yes"}, 0.004),
+    ]
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        min_height_samples=5,
+        height_seed=7,
+    )
+
+    assert all(item.height_source == "default" for item in prepared.items if item.osm_id > 1)
+    assert all(item.height_m == pytest.approx(25.0) for item in prepared.items if item.osm_id > 1)
+    assert prepared.height_sampling["enabled"] is False

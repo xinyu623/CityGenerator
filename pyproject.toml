@@ -32,6 +32,9 @@ dev = [
   "ruff>=0.5",
 ]
 
+[project.scripts]
+citygen = "app.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 

@@ -13,7 +13,7 @@ import threading
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import trimesh
@@ -21,7 +21,7 @@ from shapely import STRtree, make_valid
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
 
-from app.services.heights import HeightInfo, resolve_height
+from app.services.heights import HeightInfo, HeightSampler, resolve_height
 from app.services.issues import Issue
 from app.services.projection import Projector
 from app.services.terrain import STEEP_FOOTPRINT_RELIEF_M, TerrainGrid
@@ -82,6 +82,7 @@ class PreparedBuildings:
     bounds: tuple[float, float, float, float] | None = None
     skipped: int = 0
     height_sources: dict[str, int] = field(default_factory=dict)
+    height_sampling: dict[str, Any] = field(default_factory=dict)
     warnings: list[Issue] = field(default_factory=list)
 
 
@@ -91,6 +92,7 @@ class BuildResult:
     records: list[BuildingRecord] = field(default_factory=list)
     bounds: tuple[float, float, float, float] | None = None
     height_sources: dict[str, int] = field(default_factory=dict)
+    height_sampling: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
     warnings: list[Issue] = field(default_factory=list)
 
@@ -309,6 +311,25 @@ def detect_overlaps(polygons: Sequence[Polygon], min_overlap_m2: float = 0.5) ->
     return count
 
 
+def _known_heights(
+    features: Sequence[BuildingFeature],
+    default_height_m: float,
+    level_height_m: float,
+) -> list[float]:
+    """Heights of buildings that actually carry a height or level tag."""
+
+    values: list[float] = []
+    for feature in features:
+        info = resolve_height(
+            feature.tags,
+            default_height_m=default_height_m,
+            level_height_m=level_height_m,
+        )
+        if info.source != "default":
+            values.append(info.height_m)
+    return values
+
+
 def prepare_buildings(
     features: Sequence[BuildingFeature],
     projector: object,
@@ -317,14 +338,42 @@ def prepare_buildings(
     level_height_m: float = 3.0,
     simplify_m: float = 0.05,
     min_building_area_m2: float = 4.0,
+    sample_missing_heights: bool = True,
+    height_jitter: float = 0.1,
+    height_seed: int = 0,
+    min_height_samples: int = 5,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> PreparedBuildings:
-    """Project, clean, and resolve heights for every building feature."""
+    """Project, clean, and resolve heights for every building feature.
+
+    When the selection has enough tagged heights, untagged buildings draw from
+    that local distribution (with jitter) instead of all getting the same
+    default. A city block and a small town therefore end up with different, but
+    locally plausible, skylines.
+    """
 
     result = PreparedBuildings()
     counts: Counter[str] = Counter()
     total = len(features)
+
+    sampler: HeightSampler | None = None
+    if sample_missing_heights:
+        known = _known_heights(features, default_height_m, level_height_m)
+        if len(known) >= max(1, int(min_height_samples)):
+            sampler = HeightSampler(known, jitter=height_jitter, seed=height_seed)
+            result.height_sampling = {
+                "enabled": True,
+                "known": len(known),
+                "jitter": float(height_jitter),
+                "seed": int(height_seed),
+            }
+        else:
+            result.height_sampling = {
+                "enabled": False,
+                "known": len(known),
+                "reason": "too_few_known_heights",
+            }
 
     for index, feature in enumerate(features):
         if cancel_event is not None and cancel_event.is_set():
@@ -352,6 +401,13 @@ def prepare_buildings(
             default_height_m=default_height_m,
             level_height_m=level_height_m,
         )
+        if sampler is not None and height.source == "default":
+            height = HeightInfo(
+                height_m=sampler.draw(),
+                base_m=height.base_m,
+                source="sampled",
+                clamped=height.clamped,
+            )
         for polygon in polygons:
             result.bounds = _update_bounds(result.bounds, polygon)
             result.items.append(
@@ -382,17 +438,18 @@ def prepare_buildings(
                 count=counts["INVALID_GEOMETRY"],
             )
         )
-    if result.height_sources.get("default"):
-        result.warnings.append(
-            Issue(
-                code="MISSING_HEIGHT",
-                message=(
-                    f"{result.height_sources['default']} 栋建筑缺少高度标签，"
-                    f"已使用默认高度 {default_height_m:g} m"
-                ),
-                count=result.height_sources["default"],
+    if result.height_sources.get("default") or result.height_sources.get("sampled"):
+        missing = result.height_sources.get("default", 0) + result.height_sources.get("sampled", 0)
+        if result.height_sources.get("sampled") and sampler is not None:
+            message = (
+                f"{result.height_sources['sampled']} 栋建筑缺少高度标签，"
+                f"已按区域内 {len(sampler)} 栋已知高度随机取值"
+                f"（±{float(height_jitter):.0%}）"
             )
-        )
+        else:
+            message = f"{missing} 栋建筑缺少高度标签，已使用默认高度 {default_height_m:g} m"
+        result.warnings.append(Issue(code="MISSING_HEIGHT", message=message, count=missing))
+    result.height_sampling["sampled"] = result.height_sources.get("sampled", 0)
     if counts["HEIGHT_CLAMPED"]:
         result.warnings.append(
             Issue(
@@ -404,24 +461,60 @@ def prepare_buildings(
     return result
 
 
+def _contact_indices(polygons: Sequence[Polygon], tolerance: float) -> set[int]:
+    """Indexes of footprints that touch (or nearly touch) another footprint."""
+
+    if tolerance <= 0.0 or len(polygons) < 2:
+        return set()
+    tree = STRtree(list(polygons))
+    touching: set[int] = set()
+    for index, polygon in enumerate(polygons):
+        for candidate in tree.query(polygon.buffer(tolerance)):
+            other = int(candidate)
+            if other <= index:
+                continue
+            if polygon.distance(polygons[other]) <= tolerance:
+                touching.add(index)
+                touching.add(other)
+    return touching
+
+
 def extrude_prepared(
     prepared: PreparedBuildings,
     *,
     terrain: TerrainGrid | None = None,
     embed_depth_m: float = 0.5,
+    contact_overlap_m: float = 0.1,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> BuildResult:
-    """Place every prepared footprint on the terrain and build closed shells."""
+    """Place every prepared footprint on the terrain and build closed shells.
+
+    Footprints that touch a neighbour are grown by ``contact_overlap_m / 2`` so
+    their shells share real volume. A union of edge- or corner-touching shells
+    has no common interior and is not manifold, which used to be patched with
+    0.4 m weld boxes; a 0.1 m overlap reaches the same closed surface with a far
+    smaller artefact and no extra repair pass.
+    """
 
     result = BuildResult(
         bounds=prepared.bounds,
         height_sources=dict(prepared.height_sources),
+        height_sampling=dict(prepared.height_sampling),
         skipped=prepared.skipped,
         warnings=list(prepared.warnings),
     )
     counts: Counter[str] = Counter()
     total = len(prepared.items)
+
+    footprints = [item.polygon_local for item in prepared.items]
+    grow = max(0.0, float(contact_overlap_m)) / 2.0
+    expanded: dict[int, Polygon] = {}
+    if grow > 0.0:
+        for index in _contact_indices(footprints, max(0.0, float(contact_overlap_m))):
+            buffered = footprints[index].buffer(grow, join_style=2, mitre_limit=2.0)
+            if buffered.is_valid and not buffered.is_empty:
+                expanded[index] = buffered
 
     for index, item in enumerate(prepared.items):
         if cancel_event is not None and cancel_event.is_set():
@@ -429,15 +522,24 @@ def extrude_prepared(
 
         ground = float(terrain.min_over(item.polygon_local)) if terrain is not None else 0.0
         relief = float(terrain.relief_over(item.polygon_local)) if terrain is not None else 0.0
-        try:
-            mesh = extrude_building(
-                item.polygon_local,
-                height_m=item.height_m,
-                base_m=item.base_m,
-                embed_depth_m=embed_depth_m,
-                z_offset=ground,
-            )
-        except Exception:
+        mesh = None
+        # The grown footprint can occasionally trip the triangulator; fall back to
+        # the exact footprint rather than dropping the building.
+        for candidate in (expanded.get(index), item.polygon_local):
+            if candidate is None:
+                continue
+            try:
+                mesh = extrude_building(
+                    candidate,
+                    height_m=item.height_m,
+                    base_m=item.base_m,
+                    embed_depth_m=embed_depth_m,
+                    z_offset=ground,
+                )
+                break
+            except Exception:
+                continue
+        if mesh is None:
             counts["TRIANGULATION_FAILED"] += 1
             result.skipped += 1
             continue
@@ -508,8 +610,13 @@ def build_meshes(
     default_height_m: float = 25.0,
     level_height_m: float = 3.0,
     embed_depth_m: float = 0.5,
+    contact_overlap_m: float = 0.1,
     simplify_m: float = 0.05,
     min_building_area_m2: float = 4.0,
+    sample_missing_heights: bool = True,
+    height_jitter: float = 0.1,
+    height_seed: int = 0,
+    min_height_samples: int = 5,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> BuildResult:
@@ -522,12 +629,17 @@ def build_meshes(
         level_height_m=level_height_m,
         simplify_m=simplify_m,
         min_building_area_m2=min_building_area_m2,
+        sample_missing_heights=sample_missing_heights,
+        height_jitter=height_jitter,
+        height_seed=height_seed,
+        min_height_samples=min_height_samples,
         cancel_event=cancel_event,
     )
     return extrude_prepared(
         prepared,
         terrain=None,
         embed_depth_m=embed_depth_m,
+        contact_overlap_m=contact_overlap_m,
         progress_cb=progress_cb,
         cancel_event=cancel_event,
     )
