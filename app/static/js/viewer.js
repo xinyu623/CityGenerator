@@ -472,7 +472,8 @@ function updateLegend(patches) {
   if (!container) return;
   container.replaceChildren();
   const counts = patches?.counts;
-  if (!counts) {
+  const kinds = counts ? ["ground", "wall", "bottom"].filter((kind) => counts[kind]) : [];
+  if (!kinds.length) {
     const item = document.createElement("span");
     const swatch = document.createElement("i");
     swatch.className = "legend-swatch building";
@@ -480,8 +481,7 @@ function updateLegend(patches) {
     container.append(item);
     return;
   }
-  for (const kind of ["ground", "wall", "bottom"]) {
-    if (!counts[kind]) continue;
+  for (const kind of kinds) {
     const item = document.createElement("span");
     const swatch = document.createElement("i");
     swatch.className = `legend-swatch ${kind}`;
@@ -502,6 +502,7 @@ async function loadModels(urls, state, patches = null) {
   meta.textContent = "";
 
   let triangles = 0;
+  let split = false;
   try {
     const loaded = [];
     const combined = new state.THREE.Box3();
@@ -510,12 +511,13 @@ async function loadModels(urls, state, patches = null) {
       if (token !== loadToken) {
         loaded.forEach(({ geometry: previous }) => previous.dispose());
         geometry.dispose();
-        return;
+        return { split: false };
       }
       geometry.rotateX(-Math.PI / 2);
       const pieces =
         patches && item.kind === "city" ? splitByPatches(state, geometry, patches) : null;
       if (pieces) {
+        split = true;
         for (const piece of pieces) {
           piece.geometry.computeBoundingBox();
           if (!piece.geometry.boundingBox) throw new Error("STL 缺少包围盒");
@@ -534,7 +536,7 @@ async function loadModels(urls, state, patches = null) {
 
     if (token !== loadToken) {
       loaded.forEach(({ geometry }) => geometry.dispose());
-      return;
+      return { split: false };
     }
     if (combined.isEmpty()) throw new Error("模型为空");
 
@@ -546,8 +548,8 @@ async function loadModels(urls, state, patches = null) {
       geometry.translate(-center.x, lift, -center.z);
       geometry.computeBoundingSphere();
 
-      // Preview the fused city with one material. Distinguishing a ground
-      // layer adds more visual seams than it is worth for this mesh.
+      // One material per patch group when the ranges were applied; a job
+      // without patches renders the whole city in one warm-white material.
       const previewGeometry = cleanPreviewGeometry(state, geometry);
       const config = MATERIALS[kind] ?? MATERIALS.city;
       const material = new state.THREE.MeshStandardMaterial({
@@ -573,11 +575,13 @@ async function loadModels(urls, state, patches = null) {
     state.controls.autoRotate = true;
     syncAutoRotateButton();
     status.hidden = true;
+    return { split };
   } catch (error) {
-    if (token !== loadToken) return;
+    if (token !== loadToken) return { split: false };
     console.error(error);
     status.hidden = false;
     status.textContent = `加载失败：${error?.message || "未知错误"}`;
+    return { split: false };
   }
 }
 
@@ -586,7 +590,7 @@ export async function openViewer({ urls, patches = null, title = "3D 预览", me
   const status = document.getElementById("viewerStatus");
   document.getElementById("viewerTitle").textContent = title;
   document.getElementById("viewerMeta").textContent = meta;
-  updateLegend(patches);
+  updateLegend(null);
   modal.hidden = false;
   status.hidden = false;
   status.textContent = "初始化查看器…";
@@ -597,7 +601,8 @@ export async function openViewer({ urls, patches = null, title = "3D 预览", me
     }
     runtime.visible = true;
     runtime.resize();
-    await loadModels(urls, runtime, patches);
+    const result = await loadModels(urls, runtime, patches);
+    updateLegend(result?.split ? patches : null);
   } catch (error) {
     console.error(error);
     status.hidden = false;

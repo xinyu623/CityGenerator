@@ -391,39 +391,49 @@ async function cancel() {
   }
 }
 
+let previewPending = false;
+
 async function preview() {
-  if (!state.job || state.job.status !== "completed") return;
-  const files = state.job.files || [];
+  const job = state.job;
+  if (!job || job.status !== "completed") return;
+  const files = job.files || [];
   const cityFile = files.find((file) => file.name === "city.stl");
   if (!cityFile) {
     showError("当前结果没有可预览的 city.stl 文件。");
     return;
   }
-  const patchesFile = files.find((file) => file.name === "patches.json");
-  let patches = null;
-  if (patchesFile) {
-    try {
-      const response = await fetch(patchesFile.url);
-      if (response.ok) patches = await response.json();
-    } catch (error) {
-      console.warn("读取 patches.json 失败，预览退回单色模型", error);
+  if (previewPending) return;
+  previewPending = true;
+  try {
+    const patchesFile = files.find((file) => file.name === "patches.json");
+    let patches = null;
+    if (patchesFile) {
+      try {
+        const response = await fetch(patchesFile.url);
+        if (response.ok) patches = await response.json();
+      } catch (error) {
+        console.warn("读取 patches.json 失败，预览退回单色模型", error);
+      }
     }
+    if (state.job !== job) return; // a newer job replaced this one while fetching
+    const stats = job.stats || {};
+    const terrain = stats.terrain_enabled
+      ? ` · 地形起伏 ${Number(stats.terrain_relief_m || 0).toFixed(1)} m`
+      : "";
+    openViewer({
+      urls: [
+        {
+          url: patches ? cityFile.url : `/api/jobs/${job.id}/preview.stl`,
+          kind: "city",
+        },
+      ],
+      patches,
+      title: "CityGenerator · 城市实体预览",
+      meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形${terrain}`,
+    });
+  } finally {
+    previewPending = false;
   }
-  const stats = state.job.stats || {};
-  const terrain = stats.terrain_enabled
-    ? ` · 地形起伏 ${Number(stats.terrain_relief_m || 0).toFixed(1)} m`
-    : "";
-  openViewer({
-    urls: [
-      {
-        url: patches ? cityFile.url : `/api/jobs/${state.job.id}/preview.stl`,
-        kind: "city",
-      },
-    ],
-    patches,
-    title: "CityGenerator · 城市实体预览",
-    meta: `${formatInt(stats.buildings)} 栋建筑 · ${formatInt(stats.triangles)} 个三角形${terrain}`,
-  });
 }
 
 function syncTerrainControls() {

@@ -18,8 +18,10 @@ All notable changes to CityGenerator are recorded here.
 - The Three.js preview colours the fused city by patch group: it loads
   `city.stl` plus `patches.json`, splits the geometry by the recorded ranges
   into `ground` / `wall` / `bottom` meshes with their own materials, and lists
-  the counts in the footer legend. Jobs without a usable `patches.json` fall
-  back to the single-material `preview.stl`. The result panel gains a
+  the counts in the footer legend. Jobs without a readable `patches.json` fall
+  back to the single-material `preview.stl`; if the ranges load but do not cover
+  the mesh, the viewer keeps `city.stl` in one material and warns in the
+  console. The result panel gains a
   `地面 / 墙面` card, and `stats.patch_counts` / `stats.patch_ranges` expose the
   counts to any client.
 - `patches.json` and the metadata `patches` block record

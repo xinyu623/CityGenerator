@@ -88,6 +88,37 @@ def test_terrain_top_stays_ground_on_a_steep_slope():
     assert counts_of(kinds)["ground"] == 2
 
 
+def test_low_building_on_a_steep_slope_keeps_its_roof_out_of_ground():
+    # A 45 degree TIN with a 2 m building near the surface: the roof is cut by
+    # the slope, so some roof triangles touch the terrain at their centroid. The
+    # whole-triangle test must keep them out of ground on the fused mesh the
+    # classifier actually sees.
+    grid = TerrainGrid(
+        heights=np.array([[0.0, 20.0], [0.0, 20.0]]),
+        x0=0.0,
+        y0=0.0,
+        dx=20.0,
+        dy=20.0,
+        elevation_min_m=0.0,
+        elevation_max_m=20.0,
+    )
+    solid = build_terrain_solid(grid, thickness_m=1.0)
+    building = box(extents=(6.0, 6.0, 2.0))
+    building.apply_translation((10.0, 10.0, 4.0))  # base 3.0 m, roof 5.0 m
+    fused = fuse_city([building], solid)
+
+    mesh = fused.mesh
+    kinds = face_kinds(mesh, terrain=grid)
+    triangles = np.asarray(mesh.triangles, dtype=float)
+    gaps = np.abs(
+        triangles[:, :, 2] - grid.surface_z(triangles[:, :, 0], triangles[:, :, 1])
+    ).max(axis=1)
+    ground = kinds == GROUND
+
+    assert ground.sum() > 0
+    assert np.all(gaps[ground] <= 0.05 + 1e-6)
+
+
 def test_patch_table_records_the_normal_dot_threshold():
     mesh = box(extents=(10.0, 10.0, 1.0))
     mesh.apply_translation((0.0, 0.0, -0.5))

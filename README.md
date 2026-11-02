@@ -28,10 +28,12 @@ pan, and wheel zoom. It loads the fused `city.stl` together with
 `patches.json` and colours the surface by patch group — sand for `ground`,
 warm white for `wall` (buildings, roofs, the terrain skirt), and a darker tone
 for the base `bottom` — then lists the counts in the footer legend. A job
-without `patches.json` (or whose ranges do not cover the mesh) falls back to an
-internal display-only preview mesh assembled from the clean building shells and
-the clean base (the terrain block when terrain is enabled); that preview is not
-listed in the job files or included in the ZIP. A logarithmic depth buffer
+without a readable `patches.json` falls back to an internal display-only preview
+mesh assembled from the clean building shells and the clean base (the terrain
+block when terrain is enabled); that preview is not listed in the job files or
+included in the ZIP. If `patches.json` loads but its ranges do not cover the
+mesh, the viewer keeps `city.stl` and draws it in one colour with a console
+warning. A logarithmic depth buffer
 prevents the large ground surface from z-fighting at grazing angles. The
 exported `city.stl` remains the single Z-up CFD mesh.
 

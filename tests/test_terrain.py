@@ -76,6 +76,28 @@ def test_surface_normal_follows_the_plane() -> None:
     assert np.allclose(normals, expected, atol=1e-9)
 
 
+def test_surface_normal_uses_the_matching_tin_triangle() -> None:
+    # A non-planar cell has two different triangle planes; each side of the
+    # diagonal must use its own gradient.
+    grid = TerrainGrid(
+        heights=np.array([[0.0, 1.0], [4.0, 7.0]]),
+        x0=0.0,
+        y0=0.0,
+        dx=10.0,
+        dy=10.0,
+    )
+
+    lower = grid.surface_normal(np.array([7.5]), np.array([2.5]))[0]
+    upper = grid.surface_normal(np.array([2.5]), np.array([7.5]))[0]
+
+    expected_lower = np.array([-0.1, -0.6, 1.0])
+    expected_lower = expected_lower / np.linalg.norm(expected_lower)
+    expected_upper = np.array([-0.3, -0.4, 1.0])
+    expected_upper = expected_upper / np.linalg.norm(expected_upper)
+    assert np.allclose(lower, expected_lower)
+    assert np.allclose(upper, expected_upper)
+
+
 def test_surface_normal_is_upward_on_a_flat_grid() -> None:
     grid = plane_grid(slope_x=0.0, slope_y=0.0)
 

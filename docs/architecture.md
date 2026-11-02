@@ -289,7 +289,8 @@ building or ground STLs in the job files or ZIP. It also writes an internal
 `preview.stl` assembled from the individual building shells and the clean base
 mesh (`FusedCity.base_mesh`: the terrain block when enabled); this display-only
 mesh excludes boolean welds and is served only by `/api/jobs/{id}/preview.stl`
-as the fallback for jobs without a usable `patches.json`.
+as the fallback for jobs without a readable `patches.json`; a range mismatch
+keeps `city.stl` in one colour inside the viewer.
 Writes use a temp file + replace so a crash never leaves a half-written
 JSON/ZIP visible. The metadata schema version is `2.0`; it adds a `terrain`
 block (`enabled`, source, zoom, grid, datum, relief, tile counts, nodata fill),
@@ -327,8 +328,9 @@ creating a second bottom patch. `TerrainGrid.surface_normal` mirrors
   fused `city.stl`, splits its non-indexed geometry by the patch ranges (one
   mesh per `ground`/`wall`/`bottom`) and gives each kind its own material, so
   the CFD boundary groups are visible; the footer legend lists the counts.
-  Jobs without usable patches fall back to `preview.stl` and one warm-white
-  material. Soft
+  A job without a readable `patches.json` falls back to `preview.stl` and one
+  warm-white material; when the ranges load but do not cover the mesh the
+  viewer keeps `city.stl` in one material and warns in the console. Soft
   directional lighting, a PMREM studio environment, and a radial contact shadow
   give the model a physical, printed look. The renderer enables a logarithmic
   depth buffer so large ground surfaces do not z-fight at grazing angles. The
