@@ -2,7 +2,7 @@
 
 All notable changes to CityGenerator are recorded here.
 
-## [Unreleased]
+## [2.1.1] - 2026-11-02
 
 - Height sampling no longer copies censored or implausible observations.
   Heights clamped by the 2–300 m range (e.g. an OSM `height=350`) are excluded
