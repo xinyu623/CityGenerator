@@ -191,13 +191,19 @@ class TerrainGrid:
 
         rings = [polygon.exterior, *polygon.interiors]
         points = [np.asarray(ring.coords, dtype=float) for ring in rings if len(ring.coords)]
+        centroid = polygon.representative_point()
+        # One vectorised surface_z call for the rings plus the representative
+        # point: two calls per footprint is a measurable share of the build.
         if points:
             coords = np.concatenate(points, axis=0)
-            values = self.surface_z(coords[:, 0], coords[:, 1])
-            if values.size:
-                best = min(best, float(np.nanmin(values)))
-        centroid = polygon.representative_point()
-        best = min(best, float(self.surface_z(centroid.x, centroid.y)))
+            x = np.append(coords[:, 0], centroid.x)
+            y = np.append(coords[:, 1], centroid.y)
+        else:
+            x = np.asarray([centroid.x], dtype=float)
+            y = np.asarray([centroid.y], dtype=float)
+        values = self.surface_z(x, y)
+        if values.size:
+            best = min(best, float(np.nanmin(values)))
         return best
 
     def relief_over(self, polygon: Polygon) -> float:

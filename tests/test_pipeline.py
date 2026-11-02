@@ -168,6 +168,79 @@ def test_pipeline_generates_expected_files(tmp_path, monkeypatch, synthetic_terr
     assert covered == len(city.faces)
 
 
+def test_pipeline_writes_the_fused_stl_without_reexporting_it(
+    tmp_path, monkeypatch, synthetic_terrain
+):
+    # The export stage must write the bytes fuse_city already round-tripped and
+    # validated: one export remains (the preview mesh), not two.
+    from app.services import output as output_module
+
+    exported: list[int] = []
+    original = output_module.export_stl_bytes
+
+    def counting_export(mesh):
+        exported.append(len(mesh.faces))
+        return original(mesh)
+
+    monkeypatch.setattr(output_module, "export_stl_bytes", counting_export)
+    monkeypatch.setattr(
+        "app.services.pipeline.OverpassClient.fetch",
+        fake_fetch_factory(RAW),
+    )
+    settings = Settings(data_dir=tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+
+    result = run_pipeline(
+        GenerateRequest(bbox=BBOX),
+        settings,
+        job_dir,
+        progress_cb=lambda *args: None,
+        cancel_event=threading.Event(),
+    )
+
+    metadata = json.loads((job_dir / "output" / "metadata.json").read_text(encoding="utf-8"))
+    city_bytes = (job_dir / "output" / "city.stl").read_bytes()
+    assert len(exported) == 1
+    assert len(city_bytes) == 84 + 50 * metadata["city"]["triangle_count"]
+    assert metadata["city"]["non_manifold_edges"] == 0
+    assert result.stats["triangles"] == metadata["city"]["triangle_count"]
+
+
+def test_pipeline_skips_the_engine_input_volume_check(tmp_path, monkeypatch, synthetic_terrain):
+    # extrude_prepared validates every shell, so the pipeline tells the boolean
+    # engine not to repeat that per-shell census (it was the slowest part of
+    # the fuse stage after the build got cheaper).
+    from app.services import pipeline as pipeline_module
+
+    seen: dict[str, object] = {}
+    original = pipeline_module.fuse_city
+
+    def spy(buildings, base, **kwargs):
+        seen.update(kwargs)
+        return original(buildings, base, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "fuse_city", spy)
+    monkeypatch.setattr(
+        "app.services.pipeline.OverpassClient.fetch",
+        fake_fetch_factory(RAW),
+    )
+    settings = Settings(data_dir=tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+
+    result = run_pipeline(
+        GenerateRequest(bbox=BBOX),
+        settings,
+        job_dir,
+        progress_cb=lambda *args: None,
+        cancel_event=threading.Event(),
+    )
+
+    assert seen["check_input_volumes"] is False
+    assert result.stats["city_watertight"] is True
+
+
 def test_pipeline_without_terrain_is_flat(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.pipeline.OverpassClient.fetch",

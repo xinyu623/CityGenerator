@@ -302,6 +302,7 @@ def run_pipeline(
         build_result.meshes,
         base,
         base_thickness_m=settings.ground_slab_thickness_m,
+        check_input_volumes=False,
     )
     mark("fuse")
 

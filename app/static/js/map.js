@@ -3,6 +3,39 @@ const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
+// WGS84 ellipsoid, the datum the backend's bbox_area_km2 uses through pyproj.
+const WGS84_A = 6378137.0;
+const WGS84_F = 1 / 298.257223563;
+const WGS84_E2 = WGS84_F * (2 - WGS84_F);
+const WGS84_E = Math.sqrt(WGS84_E2);
+
+function ellipsoidAreaTerm(sinPhi) {
+  // Latitude half of the cell area integral, ∫ du / (1 − e²u²)² from 0 to sin φ.
+  return (
+    sinPhi / (2 * (1 - WGS84_E2 * sinPhi * sinPhi)) +
+    Math.atanh(WGS84_E * sinPhi) / (2 * WGS84_E)
+  );
+}
+
+export function geodesicAreaKm2(south, west, north, east) {
+  // The ellipsoid area of the lat/lon cell:
+  // A = Δλ · a²(1 − e²) · [F(sin φN) − F(sin φS)].
+  // A geodesic quadrilateral bounded by two meridians and two parallels has the
+  // same area to first order — the poleward bulge of one parallel cancels the
+  // other — so this matches the backend's pyproj area (~1e-8 relative) instead
+  // of the planar width × height the readout used to show.
+  const deltaLon = ((east - west) * Math.PI) / 180;
+  const sinSouth = Math.sin((south * Math.PI) / 180);
+  const sinNorth = Math.sin((north * Math.PI) / 180);
+  const area =
+    deltaLon *
+    WGS84_A *
+    WGS84_A *
+    (1 - WGS84_E2) *
+    (ellipsoidAreaTerm(sinNorth) - ellipsoidAreaTerm(sinSouth));
+  return Math.abs(area) / 1_000_000;
+}
+
 function distanceMeters(lat1, lon1, lat2, lon2) {
   const radius = 6371008.8;
   const toRad = (value) => (value * Math.PI) / 180;
@@ -17,7 +50,7 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   return 2 * radius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function selectionFromBounds(bounds) {
+export function selectionFromBounds(bounds) {
   const south = bounds.getSouth();
   const west = bounds.getWest();
   const north = bounds.getNorth();
@@ -28,7 +61,7 @@ function selectionFromBounds(bounds) {
     bbox: { south, west, north, east },
     width,
     height,
-    areaKm2: (width * height) / 1_000_000,
+    areaKm2: geodesicAreaKm2(south, west, north, east),
     bounds,
   };
 }

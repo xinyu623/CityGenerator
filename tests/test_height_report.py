@@ -192,3 +192,15 @@ def test_height_report_format_mentions_the_rules_and_the_pool():
 
     assert "sampled" in text.lower()
     assert "type_cap" in text
+
+
+def test_height_report_names_why_sampling_did_not_run():
+    sampling = _metadata()["buildings"]["height_sampling"]
+    sampling.update({"enabled": False, "reason": "too_few_known_heights", "sampled": 0})
+
+    summary = summarize({"buildings": {"height_sampling": sampling}}, [])
+    text = format_report(summary)
+
+    assert "disabled" in text
+    assert "too_few_known_heights" in text
+    assert check(summary) == []

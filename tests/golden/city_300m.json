@@ -1,5 +1,13 @@
 {
   "case": "300m block on a synthetic ramp",
+  "producer": {
+    "python": "3.11.9",
+    "trimesh": "5.2.0",
+    "manifold3d": "3.5.4",
+    "pyproj": "3.7.2",
+    "shapely": "2.2.0",
+    "numpy": "2.4.6"
+  },
   "metrics": {
     "buildings": 25,
     "triangles": 820,

@@ -97,9 +97,7 @@ def _build_metadata(
             "embed_depth_m": request.options.embed_depth_m,
             "contact_overlap_m": settings.contact_overlap_m,
             "height_sampling": build_result.height_sampling,
-            "each_shell_watertight": all(
-                record.mesh.is_watertight for record in build_result.records
-            ),
+            "each_shell_watertight": build_result.each_shell_watertight,
         },
         "ground": {
             "included": True,
@@ -346,22 +344,35 @@ def write_outputs(
     export_started = time.perf_counter()
     pipeline_started = export_started if started_at is None else started_at
 
-    city_bytes = export_stl_bytes(city.mesh)
+    # fuse_city already exported the city and reloaded it to prove the STL is
+    # closed; reuse those bytes and that mesh instead of a second round-trip.
+    reused = city.stl_bytes is not None and city.stl_mesh is not None
+    if reused:
+        assert city.stl_bytes is not None and city.stl_mesh is not None
+        city_bytes = city.stl_bytes
+        loaded = city.stl_mesh
+    else:  # pragma: no cover - defensive path for a hand-built FusedCity
+        city_bytes = export_stl_bytes(city.mesh)
+        loaded = None
     write_bytes_atomic(output_dir / "city.stl", city_bytes)
     write_bytes_atomic(
         output_dir / "preview.stl",
         export_stl_bytes(_preview_mesh(build_result, city)),
     )
 
-    loaded = load_stl_bytes(city_bytes)
+    if loaded is None:
+        loaded = load_stl_bytes(city_bytes)
     if len(loaded.faces) != len(city.mesh.faces):
         raise CityUnionError(
             "city.stl 回读后的三角形数与导出前不一致",
             detail=f"before={len(city.mesh.faces)}, after={len(loaded.faces)}",
         )
-    if not loaded.is_watertight:
-        raise CityUnionError("city.stl 回读后不再是水密表面")
-    written_non_manifold = validate_city(loaded)
+    if reused:
+        written_non_manifold = 0
+    else:  # pragma: no cover - defensive path for a hand-built FusedCity
+        if not loaded.is_watertight:
+            raise CityUnionError("city.stl 回读后不再是水密表面")
+        written_non_manifold = validate_city(loaded)
 
     kinds = face_kinds(
         loaded,

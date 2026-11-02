@@ -21,6 +21,11 @@ import trimesh
 from shapely import STRtree, make_valid
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
+from trimesh import grouping
+from trimesh.constants import tol as TRIMESH_TOL
+from trimesh.creation import triangulate_polygon
+from trimesh.geometry import faces_to_edges
+from trimesh.triangles import extents as triangle_extents
 
 from app.services.heights import (
     AREA_BANDWIDTH_LOG,
@@ -48,6 +53,7 @@ __all__ = [
     "Issue",
     "PreparedBuilding",
     "PreparedBuildings",
+    "ShellReport",
     "build_meshes",
     "clean_polygons",
     "detect_overlaps",
@@ -57,6 +63,124 @@ __all__ = [
     "project_geometry",
     "project_polygon",
 ]
+
+
+@dataclass(frozen=True)
+class ShellReport:
+    """One edge census of a shell: closure, winding, volume, and degeneracy."""
+
+    watertight: bool
+    winding_consistent: bool
+    volume: float
+    degenerate_faces: int
+    finite: bool
+
+    @property
+    def valid(self) -> bool:
+        """The per-shell acceptance test used before a shell enters the union."""
+
+        return (
+            self.watertight
+            and self.winding_consistent
+            and self.volume > 0.0
+            and self.finite
+        )
+
+
+def _shell_report(mesh: trimesh.Trimesh) -> ShellReport:
+    """Measure a shell in one pass instead of through trimesh's cached properties.
+
+    ``is_watertight``, ``is_winding_consistent``, ``volume``, and the
+    degenerate-face mask are four separate edge censuses (and volume runs the
+    full mass-properties integral); at ~1 700 shells that costs more than the
+    extrusions themselves. One sorted-edge pass yields all of it with the same
+    definitions trimesh uses: every undirected edge exactly twice, every
+    directed edge once, and volume from the divergence theorem.
+    """
+
+    faces = np.asarray(mesh.faces)
+    if not len(faces):
+        return ShellReport(False, False, 0.0, 0, True)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    triangles = vertices[faces]
+    cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    double_area = np.sqrt(np.einsum("ij,ij->i", cross, cross))
+    volume = float(np.einsum("ij,ij->i", triangles[:, 0], cross).sum() / 6.0)
+
+    count = len(vertices)
+    edges = faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2)
+    low = np.minimum(edges[:, 0], edges[:, 1]).astype(np.int64)
+    high = np.maximum(edges[:, 0], edges[:, 1]).astype(np.int64)
+    keys = np.sort(low * count + high)
+    if keys.size:
+        starts = np.concatenate(([0], np.flatnonzero(np.diff(keys)) + 1))
+        counts = np.diff(np.concatenate((starts, [keys.size])))
+        watertight = bool((counts == 2).all())
+    else:
+        watertight = False
+    directed = np.sort(edges[:, 0].astype(np.int64) * count + edges[:, 1])
+    winding = bool(watertight and (np.diff(directed) > 0).all())
+
+    sides = triangle_extents(triangles=triangles, areas=double_area * 0.5)
+    degenerate = int((~(sides > TRIMESH_TOL.merge).all(axis=1)).sum())
+    return ShellReport(
+        watertight=watertight,
+        winding_consistent=winding,
+        volume=volume,
+        degenerate_faces=degenerate,
+        finite=bool(np.isfinite(vertices).all()),
+    )
+
+
+def _extrude_polygon(polygon: Polygon, height: float) -> trimesh.Trimesh:
+    """Extrude a polygon into a closed shell that reuses its ring vertices.
+
+    ``trimesh.creation.extrude_polygon`` builds the caps and then a separate wall
+    vertex set, so it needs a full vertex merge to become watertight. Building
+    the walls from the cap indexes yields exactly the same triangles (pinned by
+    ``test_extruded_shell_matches_trimesh_polygon_construction``) with no merge
+    pass and no duplicate vertices.
+    """
+
+    vertices2d, faces = triangulate_polygon(polygon)
+    vertices2d = np.asanyarray(vertices2d, dtype=np.float64)
+    faces = np.asanyarray(faces, dtype=np.int64)
+    if not len(faces):
+        raise ValueError("triangulation produced an empty mesh")
+
+    # Same winding decision as trimesh.creation.extrude_triangulation: the cap
+    # triangles must face along +Z for a positive extrusion.
+    first = faces[:10]
+    edge_a = vertices2d[first[:, 0]] - vertices2d[first[:, 1]]
+    edge_b = vertices2d[first[:, 1]] - vertices2d[first[:, 2]]
+    signs = edge_a[:, 0] * edge_b[:, 1] - edge_a[:, 1] * edge_b[:, 0]
+    if len(signs) and np.sign(signs.mean()) != np.sign(height):
+        faces = np.fliplr(faces)
+
+    directed = faces_to_edges(faces)
+    boundary = directed[grouping.group_rows(np.sort(directed, axis=1), require_count=1)]
+    count = len(vertices2d)
+    bottom = np.column_stack([vertices2d, np.zeros(count)])
+    top = bottom + np.array([0.0, 0.0, float(height)])
+    vertices = np.vstack([bottom, top])
+
+    wall_faces = np.empty((len(boundary) * 2, 3), dtype=np.int64)
+    wall_faces[0::2] = np.column_stack(
+        [boundary[:, 1] + count, boundary[:, 0] + count, boundary[:, 1]]
+    )
+    wall_faces[1::2] = np.column_stack([boundary[:, 1], boundary[:, 0] + count, boundary[:, 0]])
+    faces_all = np.vstack([np.fliplr(faces), faces + count, wall_faces])
+    return trimesh.Trimesh(vertices=vertices, faces=faces_all, process=False)
+
+
+def _repair_shell(mesh: trimesh.Trimesh) -> None:
+    """The legacy repair pass, only for a shell the fast path cannot accept."""
+
+    mesh.update_faces(mesh.nondegenerate_faces())
+    if hasattr(mesh, "remove_unreferenced_vertices"):
+        mesh.remove_unreferenced_vertices()
+    trimesh.repair.fix_winding(mesh)
+    trimesh.repair.fix_normals(mesh)
 
 
 @dataclass
@@ -109,6 +233,10 @@ class BuildResult:
     height_sampling: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
     warnings: list[Issue] = field(default_factory=list)
+    # Every record is appended only after ``_mesh_is_valid`` accepted its shell,
+    # so this is true by construction; recording it keeps the metadata writer
+    # from re-running a trimesh closure census over every shell.
+    each_shell_watertight: bool = True
 
 
 class BuildCancelled(RuntimeError):
@@ -252,9 +380,18 @@ def extrude_building(
         # walls do not share a coplanar face with the ground patch.
         extrusion_height += float(embed_depth_m)
 
-    mesh = trimesh.creation.extrude_polygon(polygon, extrusion_height)
+    mesh = _extrude_polygon(polygon, extrusion_height)
     if mesh is None or len(mesh.faces) == 0:
         raise ValueError("triangulation produced an empty mesh")
+
+    report = _shell_report(mesh)
+    if (
+        report.degenerate_faces
+        or not report.watertight
+        or not report.winding_consistent
+        or report.volume <= 0.0
+    ):
+        _repair_shell(mesh)
 
     if base_m > 0.0:
         mesh.apply_translation((0.0, 0.0, float(base_m)))
@@ -263,24 +400,12 @@ def extrude_building(
     if z_offset:
         mesh.apply_translation((0.0, 0.0, float(z_offset)))
 
-    mesh = mesh.copy()
-    mesh.update_faces(mesh.nondegenerate_faces())
-    if hasattr(mesh, "remove_unreferenced_vertices"):
-        mesh.remove_unreferenced_vertices()
-    trimesh.repair.fix_winding(mesh)
-    trimesh.repair.fix_normals(mesh)
     return mesh
 
 
 def _mesh_is_valid(mesh: trimesh.Trimesh) -> bool:
     try:
-        return bool(
-            mesh.is_watertight
-            and mesh.is_winding_consistent
-            and len(mesh.faces) > 0
-            and mesh.volume > 0.0
-            and np.isfinite(mesh.vertices).all()
-        )
+        return _shell_report(mesh).valid
     except Exception:
         return False
 
@@ -343,8 +468,15 @@ def _known_height_pairs(
     features: Sequence[BuildingFeature],
     default_height_m: float,
     level_height_m: float,
+    *,
+    with_areas: bool = True,
 ) -> list[KnownHeight]:
-    """Height, footprint area, and building type for every tagged building."""
+    """Height, footprint area, and building type for every tagged building.
+
+    ``with_areas`` is off when sampling is disabled: the pool tail counts still
+    come from the tagged heights, and the footprint areas are only needed to
+    condition a draw.
+    """
 
     pairs: list[KnownHeight] = []
     for feature in features:
@@ -360,7 +492,7 @@ def _known_height_pairs(
             pairs.append(
                 KnownHeight(
                     height_m=info.height_m,
-                    area_m2=_footprint_area_m2(feature.geometry),
+                    area_m2=_footprint_area_m2(feature.geometry) if with_areas else 0.0,
                     building_type=feature.tags.get("building", ""),
                 )
             )
@@ -372,26 +504,43 @@ def _sampling_metadata(
     *,
     jitter: float,
     seed: int,
-    sampler: HeightSampler,
+    sampler: HeightSampler | None,
     conservative: bool,
     slenderness_k: float,
+    reason: str,
 ) -> dict[str, Any]:
-    """The ``buildings.height_sampling`` block, with the pool's own tail counts."""
+    """The ``buildings.height_sampling`` block, with one key set in every mode.
 
+    Sampling can run, be unavailable (too few tagged heights), or be switched
+    off. A consumer branches on ``enabled`` and ``reason``, never on which keys
+    exist, so the disabled modes carry neutral values: zero counters, empty
+    maps, and the configured parameters.
+    """
+
+    enabled = sampler is not None
     return {
-        "enabled": True,
+        "enabled": enabled,
+        "reason": "" if enabled else reason,
         "known": len(known),
         "jitter": float(jitter),
         "seed": int(seed),
-        "weighting": "type_and_area_similarity",
+        "weighting": "type_and_area_similarity" if enabled else "none",
         "type_factors": {"same_type": TYPE_WEIGHT, "type_group": GROUP_WEIGHT},
         "area_bandwidth_log": AREA_BANDWIDTH_LOG,
         "area_ratio": [AREA_RATIO_MIN, AREA_RATIO_MAX],
-        "area_weighted": sampler.area_weighted,
+        "area_weighted": bool(enabled and sampler is not None and sampler.area_weighted),
         "conservative": bool(conservative),
         "slenderness_k": float(slenderness_k),
         "pool_above_100m": sum(1 for item in known if item.height_m >= 100.0),
         "pool_above_250m": sum(1 for item in known if item.height_m >= 250.0),
+        "sampled": 0,
+        "sampled_buildings": 0,
+        "rules": {},
+        "type_capped": 0,
+        "band_fallback_draws": 0,
+        "sampled_above_100m": 0,
+        "sampled_above_250m": 0,
+        "above_100m_by_group": {},
     }
 
 
@@ -459,9 +608,15 @@ def prepare_buildings(
     counts: Counter[str] = Counter()
     total = len(features)
 
+    known = _known_height_pairs(
+        features,
+        default_height_m,
+        level_height_m,
+        with_areas=sample_missing_heights,
+    )
     sampler: HeightSampler | None = None
+    reason = "disabled"
     if sample_missing_heights:
-        known = _known_height_pairs(features, default_height_m, level_height_m)
         if len(known) >= max(1, int(min_height_samples)):
             sampler = HeightSampler(
                 known,
@@ -470,20 +625,18 @@ def prepare_buildings(
                 conservative=height_conservative,
                 slenderness_k=height_slenderness_k,
             )
-            result.height_sampling = _sampling_metadata(
-                known,
-                jitter=height_jitter,
-                seed=height_seed,
-                sampler=sampler,
-                conservative=height_conservative,
-                slenderness_k=height_slenderness_k,
-            )
+            reason = ""
         else:
-            result.height_sampling = {
-                "enabled": False,
-                "known": len(known),
-                "reason": "too_few_known_heights",
-            }
+            reason = "too_few_known_heights"
+    result.height_sampling = _sampling_metadata(
+        known,
+        jitter=height_jitter,
+        seed=height_seed,
+        sampler=sampler,
+        conservative=height_conservative,
+        slenderness_k=height_slenderness_k,
+        reason=reason,
+    )
 
     rules: Counter[str] = Counter()
     for index, feature in enumerate(features):
@@ -593,15 +746,15 @@ def _contact_indices(polygons: Sequence[Polygon], tolerance: float) -> set[int]:
     if tolerance <= 0.0 or len(polygons) < 2:
         return set()
     tree = STRtree(list(polygons))
+    # One vectorised distance query replaces a buffer per footprint plus a
+    # candidate scan each.
+    left, right = tree.query(list(polygons), predicate="dwithin", distance=float(tolerance))
     touching: set[int] = set()
-    for index, polygon in enumerate(polygons):
-        for candidate in tree.query(polygon.buffer(tolerance)):
-            other = int(candidate)
-            if other <= index:
-                continue
-            if polygon.distance(polygons[other]) <= tolerance:
-                touching.add(index)
-                touching.add(other)
+    for first, second in zip(left.tolist(), right.tolist(), strict=True):
+        if first >= second:
+            continue
+        touching.add(int(first))
+        touching.add(int(second))
     return touching
 
 

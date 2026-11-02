@@ -93,6 +93,11 @@ class FusedCity:
     base_mesh: trimesh.Trimesh | None = None
     engine: str = MANIFOLD_ENGINE
     weld_repairs: int = 0
+    # The STL bytes fuse_city had to export to prove the mesh survives a
+    # float32 round-trip, plus the mesh read back from them. The output stage
+    # writes these instead of exporting and reloading the city again.
+    stl_bytes: bytes | None = None
+    stl_mesh: trimesh.Trimesh | None = None
 
 
 def _non_manifold_edges(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -162,9 +167,19 @@ def _weld_boxes(mesh: trimesh.Trimesh, edges: np.ndarray) -> list[trimesh.Trimes
     return welds
 
 
-def _stl_roundtrip_is_closed(mesh: trimesh.Trimesh) -> bool:
-    loaded = load_stl_bytes(export_stl_bytes(mesh))
-    return bool(loaded.is_watertight and non_manifold_edge_count(loaded) == 0)
+def _closed_stl_roundtrip(mesh: trimesh.Trimesh) -> tuple[bytes, trimesh.Trimesh | None]:
+    """Export ``mesh`` and read it back; return the bytes and the reloaded mesh.
+
+    The reloaded mesh is ``None`` when the float32 round-trip lost the closure,
+    which is what the weld repair pass reacts to. When it is not ``None`` the
+    caller can write exactly those bytes instead of exporting again.
+    """
+
+    data = export_stl_bytes(mesh)
+    loaded = load_stl_bytes(data)
+    if not bool(loaded.is_watertight) or non_manifold_edge_count(loaded):
+        return data, None
+    return data, loaded
 
 
 def validate_city(mesh: trimesh.Trimesh) -> int:
@@ -201,8 +216,15 @@ def fuse_city(
     base: trimesh.Trimesh,
     *,
     base_thickness_m: float | None = None,
+    check_input_volumes: bool = True,
 ) -> FusedCity:
-    """Boolean-union every building shell with the solid base."""
+    """Boolean-union every building shell with the solid base.
+
+    ``check_input_volumes`` maps to trimesh's ``check_volume``: it makes the
+    engine validate every input shell (watertight, consistent winding, positive
+    volume) before the union. The pipeline validates each shell itself before
+    it gets here and passes ``False``; a direct caller keeps the check.
+    """
 
     if not buildings:
         raise CityUnionError("没有可融合的建筑壳体")
@@ -212,10 +234,16 @@ def fuse_city(
     meshes: list[trimesh.Trimesh] = [*buildings, base]
     welds: list[trimesh.Trimesh] = []
     fused: trimesh.Trimesh | None = None
+    stl_bytes: bytes | None = None
+    stl_mesh: trimesh.Trimesh | None = None
 
     for _ in range(MAX_WELD_PASSES):
         try:
-            fused = trimesh.boolean.union([*meshes, *welds], engine=MANIFOLD_ENGINE)
+            fused = trimesh.boolean.union(
+                [*meshes, *welds],
+                engine=MANIFOLD_ENGINE,
+                check_volume=check_input_volumes,
+            )
         except Exception as exc:
             raise CityUnionError(
                 "建筑与地面布尔融合失败",
@@ -227,7 +255,11 @@ def fuse_city(
         separate_collapsed_vertices(fused)
         validate_city(fused)
 
-        if _stl_roundtrip_is_closed(fused):
+        stl_bytes, stl_mesh = _closed_stl_roundtrip(fused)
+        if stl_mesh is not None:
+            # Validate the file's own contents once; write_outputs then reuses
+            # these bytes and this mesh without repeating the census.
+            validate_city(stl_mesh)
             break
 
         probe = fused.copy()
@@ -250,6 +282,7 @@ def fuse_city(
         )
 
     assert fused is not None
+    assert stl_bytes is not None and stl_mesh is not None
     bounds = np.asarray(base.bounds, dtype=float)
     return FusedCity(
         mesh=fused,
@@ -267,4 +300,6 @@ def fuse_city(
         base_mesh=base,
         engine=MANIFOLD_ENGINE,
         weld_repairs=len(welds),
+        stl_bytes=stl_bytes,
+        stl_mesh=stl_mesh,
     )

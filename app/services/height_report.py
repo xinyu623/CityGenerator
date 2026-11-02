@@ -176,6 +176,8 @@ def summarize(
             "recorded": pool_recorded,
         },
         "metadata": {
+            "enabled": sampling.get("enabled"),
+            "reason": str(sampling.get("reason") or ""),
             "sampled": int(sampling.get("sampled") or 0),
             "sampled_buildings": sampling.get("sampled_buildings"),
             "sampled_above_100m": sampling.get("sampled_above_100m"),
@@ -257,6 +259,9 @@ def format_report(summary: dict[str, Any]) -> str:
     if not pool["recorded"]:
         lines.append("pool tail           not recorded (pre-v3 job): share check skipped")
     metadata = summary.get("metadata") or {}
+    if metadata.get("enabled") is False:
+        reason = metadata.get("reason") or "unknown"
+        lines.append(f"sampling            disabled ({reason}); no heights were sampled")
     if metadata.get("sampled"):
         lines.append(
             f"metadata            {metadata['sampled']} parts / "

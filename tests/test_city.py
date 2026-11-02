@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import trimesh
 from trimesh.creation import box
 
@@ -53,6 +54,25 @@ def test_fused_city_drops_internal_faces() -> None:
     assert len(fused.mesh.faces) < naive_triangles
 
 
+def test_fused_city_returns_the_validated_stl_roundtrip() -> None:
+    # fuse_city already exports and reloads the city to prove the STL stays
+    # closed; the output stage must consume those bytes instead of repeating
+    # the export, the load, and the manifold census.
+    first = box(extents=(10.0, 10.0, 20.0))
+    first.apply_translation((0.0, 0.0, 9.5))
+
+    fused = fuse_city([first], _slab())
+
+    assert isinstance(fused.stl_bytes, bytes)
+    assert fused.stl_mesh is not None
+    assert len(fused.stl_mesh.faces) == len(fused.mesh.faces)
+    assert fused.stl_mesh.is_watertight
+    assert non_manifold_edge_count(fused.stl_mesh) == 0
+    loaded = load_stl_bytes(fused.stl_bytes)
+    assert len(loaded.faces) == len(fused.stl_mesh.faces)
+    assert loaded.volume == pytest.approx(float(fused.stl_mesh.volume))
+
+
 def test_edge_touching_buildings_survive_stl_roundtrip() -> None:
     first = box(extents=(10.0, 10.0, 20.0))
     first.apply_translation((0.0, 0.0, 9.5))
@@ -81,6 +101,31 @@ def test_fused_city_rejects_open_building() -> None:
         pass
     else:
         raise AssertionError("an open building should not produce a closed city")
+
+
+def test_fused_city_still_rejects_open_building_without_the_engine_check() -> None:
+    # The pipeline validates each shell itself and tells the engine to skip its
+    # duplicate input check; the fused result still has to be a closed solid.
+    closed = box(extents=(10.0, 10.0, 20.0))
+    open_building = trimesh.Trimesh(
+        vertices=closed.vertices, faces=closed.faces[:-1], process=False
+    )
+
+    with pytest.raises(CityUnionError):
+        fuse_city([open_building], _slab(), check_input_volumes=False)
+
+
+def test_fused_city_accepts_valid_shells_without_the_engine_check() -> None:
+    first = box(extents=(10.0, 10.0, 20.0))
+    first.apply_translation((0.0, 0.0, 9.5))
+    second = box(extents=(10.0, 10.0, 20.0))
+    second.apply_translation((5.0, 0.0, 9.5))
+
+    fused = fuse_city([first, second], _slab(), check_input_volumes=False)
+
+    assert fused.mesh.is_watertight
+    assert non_manifold_edge_count(fused.mesh) == 0
+    assert fused.stl_mesh is not None
 
 
 def test_separate_collapsed_vertices_moves_sub_tolerance_pairs_apart() -> None:

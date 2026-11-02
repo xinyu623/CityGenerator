@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
+import platform
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,36 @@ STEP_M = 50.0
 _LAT = 28.2
 _M_PER_DEG_LAT = 110_900.0
 _M_PER_DEG_LON = 111_320.0 * float(np.cos(np.radians(_LAT)))
+# The geometry oracle depends on these; the golden file records the versions
+# that produced its metrics so a dependency bump cannot silently fail CI.
+PRODUCER_PACKAGES = ("trimesh", "manifold3d", "pyproj", "shapely", "numpy")
+
+
+def _producer_versions() -> dict[str, str]:
+    versions = {"python": platform.python_version()}
+    for name in PRODUCER_PACKAGES:
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:  # pragma: no cover - installed deps
+            versions[name] = "unknown"
+    return versions
+
+
+def _producer_note(recorded: dict[str, str], installed: dict[str, str]) -> str:
+    """The version diff that explains a golden mismatch on an unchanged commit."""
+
+    names = sorted(set(recorded) | set(installed))
+    recorded_text = ", ".join(f"{name}={recorded.get(name, '?')}" for name in names)
+    installed_text = ", ".join(f"{name}={installed.get(name, '?')}" for name in names)
+    changed = [name for name in names if recorded.get(name) != installed.get(name)]
+    changed_text = ", ".join(changed) if changed else "none"
+    return "\n".join(
+        (
+            f"recorded producer: {recorded_text}",
+            f"installed producer: {installed_text}",
+            f"changed: {changed_text} (a dependency bump can move the golden metrics)",
+        )
+    )
 
 
 def _features() -> list[BuildingFeature]:
@@ -122,7 +154,24 @@ def build_metrics() -> dict[str, object]:
     }
 
 
-def _assert_matches_golden(actual: dict[str, object], golden: dict[str, object]) -> None:
+def _assert_matches_golden(
+    actual: dict[str, object],
+    golden: dict[str, object],
+    recorded_producer: dict[str, str] | None = None,
+    installed_producer: dict[str, str] | None = None,
+) -> None:
+    try:
+        _check_metrics(actual, golden)
+    except AssertionError as exc:
+        # A dependency bump can move these metrics on an unchanged commit; the
+        # version diff is the part of the message that explains it.
+        if recorded_producer is not None and installed_producer is not None:
+            note = _producer_note(recorded_producer, installed_producer)
+            raise AssertionError(f"{exc}\n{note}") from None
+        raise
+
+
+def _check_metrics(actual: dict[str, object], golden: dict[str, object]) -> None:
     for key, expected in golden.items():
         assert key in actual, f"golden metric {key!r} is no longer produced"
         value = actual[key]
@@ -143,10 +192,51 @@ def test_golden_300m_city_matches_the_recorded_metrics() -> None:
     if os.environ.get("UPDATE_GOLDEN") == "1":
         GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         GOLDEN.write_text(
-            json.dumps({"case": "300m block on a synthetic ramp", "metrics": metrics}, indent=2)
+            json.dumps(
+                {
+                    "case": "300m block on a synthetic ramp",
+                    "producer": _producer_versions(),
+                    "metrics": metrics,
+                },
+                indent=2,
+            )
             + "\n",
             encoding="utf-8",
         )
     assert GOLDEN.exists(), "golden file missing; run UPDATE_GOLDEN=1 pytest tests/test_golden.py"
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))["metrics"]
-    _assert_matches_golden(metrics, golden)
+    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    _assert_matches_golden(metrics, golden["metrics"], golden.get("producer"), _producer_versions())
+
+
+def test_golden_file_records_the_producer_versions() -> None:
+    assert GOLDEN.exists(), "golden file missing; run UPDATE_GOLDEN=1 pytest tests/test_golden.py"
+    producer = json.loads(GOLDEN.read_text(encoding="utf-8")).get("producer")
+    assert producer, "golden file has no producer block; run UPDATE_GOLDEN=1"
+    for name in ("python", "trimesh", "manifold3d", "pyproj", "shapely", "numpy"):
+        assert producer.get(name), f"golden producer block is missing {name}"
+
+
+def test_producer_note_names_every_changed_version() -> None:
+    recorded = {"trimesh": "4.0.0", "numpy": "1.26.0", "python": "3.11.9"}
+    installed = {"trimesh": "5.2.0", "numpy": "1.26.0", "python": "3.11.9"}
+
+    note = _producer_note(recorded, installed)
+
+    assert "recorded producer:" in note and "trimesh=4.0.0" in note
+    assert "installed producer:" in note and "trimesh=5.2.0" in note
+    assert "changed: trimesh" in note
+    assert "changed: trimesh, " not in note
+
+
+def test_a_metric_mismatch_reports_the_producer_versions() -> None:
+    with pytest.raises(AssertionError) as error:
+        _assert_matches_golden(
+            {"triangles": 1},
+            {"triangles": 2},
+            {"trimesh": "4.0.0"},
+            {"trimesh": "5.2.0"},
+        )
+
+    message = str(error.value)
+    assert "trimesh=4.0.0" in message
+    assert "trimesh=5.2.0" in message

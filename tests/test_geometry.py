@@ -8,7 +8,9 @@ from shapely.geometry import MultiPolygon, Polygon
 from app.services.buildings import (
     PreparedBuilding,
     PreparedBuildings,
+    _contact_indices,
     _known_height_pairs,
+    _shell_report,
     build_meshes,
     clean_polygons,
     detect_overlaps,
@@ -85,6 +87,91 @@ def test_extrude_polygon_with_hole_is_watertight():
     mesh = extrude_building(polygon, height_m=10.0)
     assert mesh.is_watertight
     assert mesh.volume == pytest.approx((400.0 - 16.0) * 10.5)
+
+
+def _triangle_signature(mesh: trimesh.Trimesh) -> list[tuple[float, ...]]:
+    """Triangles as unordered vertex triples, rounded and sorted."""
+
+    triangles = np.round(np.sort(np.asarray(mesh.triangles), axis=1), 9)
+    return sorted(tuple(row.ravel()) for row in triangles)
+
+
+def test_extruded_shell_matches_trimesh_polygon_construction():
+    # The leaner shell builder must produce exactly the triangles trimesh's
+    # extrude_polygon produces: same caps, same wall split, same winding.
+    with_hole = Polygon(
+        [(0, 0), (20, 0), (20, 20), (0, 20)],
+        [[(8, 8), (12, 8), (12, 12), (8, 12)]],
+    )
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    for shape in (square(), l_shape, with_hole):
+        mesh = extrude_building(shape, height_m=12.0, base_m=0.0, embed_depth_m=0.0)
+        reference = trimesh.creation.extrude_polygon(shape, 12.0)
+        assert _triangle_signature(mesh) == _triangle_signature(reference)
+        assert mesh.volume == pytest.approx(reference.volume)
+
+
+def test_shell_report_accepts_a_closed_box():
+    report = _shell_report(trimesh.creation.box(extents=(2.0, 2.0, 2.0)))
+    assert report.watertight is True
+    assert report.winding_consistent is True
+    assert report.finite is True
+    assert report.degenerate_faces == 0
+    assert report.volume == pytest.approx(8.0)
+    assert report.valid is True
+
+
+def test_shell_report_rejects_an_open_shell():
+    closed = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    open_mesh = trimesh.Trimesh(vertices=closed.vertices, faces=closed.faces[:-1], process=False)
+    report = _shell_report(open_mesh)
+    assert report.watertight is False
+    assert report.valid is False
+
+
+def test_shell_report_rejects_a_non_manifold_edge():
+    # Three triangles share edge (0, 1): every edge appears an even number of
+    # times, so a pairs-only check would wrongly call it watertight.
+    mesh = trimesh.Trimesh(
+        vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1]],
+        faces=[[0, 1, 2], [0, 1, 3], [0, 1, 4]],
+        process=False,
+    )
+    report = _shell_report(mesh)
+    assert report.watertight is False
+    assert report.valid is False
+
+
+def test_shell_report_rejects_an_inverted_shell():
+    mesh = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    mesh.invert()
+    report = _shell_report(mesh)
+    assert report.watertight is True
+    assert report.winding_consistent is True
+    assert report.volume < 0.0
+    assert report.valid is False
+
+
+def test_shell_report_counts_a_zero_area_face():
+    closed = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    vertices = np.vstack(
+        [closed.vertices, [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]
+    )
+    faces = np.vstack([closed.faces, [[8, 9, 10]]])
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    report = _shell_report(mesh)
+    assert report.degenerate_faces == 1
+    assert report.valid is False
+
+
+def test_contact_indices_finds_touching_and_near_touching_footprints():
+    left = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    right = Polygon([(10, 0), (20, 0), (20, 10), (10, 10)])
+    near = Polygon([(20.04, 0), (30, 0), (30, 10), (20.04, 10)])
+    far = Polygon([(40, 0), (50, 0), (50, 10), (40, 10)])
+
+    assert _contact_indices([left, right, near, far], 0.1) == {0, 1, 2}
+    assert _contact_indices([left, right, near, far], 0.0) == set()
 
 
 def test_detect_overlaps_counts_partial_overlap():
@@ -465,3 +552,83 @@ def test_tagged_low_rise_height_is_not_capped():
     station = next(item for item in prepared.items if item.osm_id == 1)
     assert station.height_source == "tag"
     assert station.height_m == pytest.approx(100.0)
+
+
+def test_height_sampling_metadata_has_one_shape_in_every_mode():
+    # Sampling can run, be unavailable (too few tagged heights), or be switched
+    # off. Consumers branch on ``enabled``/``reason``, never on which keys exist.
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "12"}, 0.000),
+        _feature(2, {"building": "yes"}, 0.002),
+    ]
+
+    enabled = prepare_buildings(features, projector, min_height_samples=1, height_seed=7)
+    too_few = prepare_buildings(features, projector, min_height_samples=5, height_seed=7)
+    disabled = prepare_buildings(features, projector, sample_missing_heights=False)
+
+    shapes = {
+        tuple(sorted(block.height_sampling))
+        for block in (enabled, too_few, disabled)
+    }
+    assert len(shapes) == 1
+    assert shapes.pop() == tuple(
+        sorted(
+            {
+                "enabled",
+                "reason",
+                "known",
+                "jitter",
+                "seed",
+                "weighting",
+                "type_factors",
+                "area_bandwidth_log",
+                "area_ratio",
+                "area_weighted",
+                "conservative",
+                "slenderness_k",
+                "pool_above_100m",
+                "pool_above_250m",
+                "sampled",
+                "sampled_buildings",
+                "rules",
+                "type_capped",
+                "band_fallback_draws",
+                "sampled_above_100m",
+                "sampled_above_250m",
+                "above_100m_by_group",
+            }
+        )
+    )
+
+    running = enabled.height_sampling
+    assert running["enabled"] is True
+    assert running["reason"] == ""
+    assert running["sampled"] == 1
+    assert running["weighting"] == "type_and_area_similarity"
+    assert running["area_weighted"] is True
+
+    sparse = too_few.height_sampling
+    assert sparse["enabled"] is False
+    assert sparse["reason"] == "too_few_known_heights"
+    assert sparse["known"] == 1
+
+    off = disabled.height_sampling
+    assert off["enabled"] is False
+    assert off["reason"] == "disabled"
+    assert off["known"] == 1
+    for block in (sparse, off):
+        assert block["sampled"] == 0
+        assert block["sampled_buildings"] == 0
+        assert block["type_capped"] == 0
+        assert block["band_fallback_draws"] == 0
+        assert block["sampled_above_100m"] == 0
+        assert block["sampled_above_250m"] == 0
+        assert block["rules"] == {}
+        assert block["above_100m_by_group"] == {}
+        assert block["area_weighted"] is False
+        assert block["weighting"] == "none"
+        assert block["area_ratio"] == pytest.approx([0.5, 2.0])
+        assert block["type_factors"] == {"same_type": 2.0, "type_group": 1.5}
+        assert block["pool_above_100m"] == 0
+        assert block["pool_above_250m"] == 0
