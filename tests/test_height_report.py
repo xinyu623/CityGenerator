@@ -127,6 +127,19 @@ def test_height_report_tolerates_the_geojson_rounding_of_a_capped_sample():
     assert check(summary) == []
 
 
+def test_height_report_does_not_flag_a_forced_base_floor_height():
+    # A building whose own min_height forces the sampled height up is not a
+    # sampling violation, even when the result exceeds its type ceiling or the
+    # conservative slenderness bound.
+    features = [_feature(1, 200.0, building="house", rule="base_floor", area_m2=100.0)]
+
+    summary = summarize(_metadata(conservative=True, slenderness_k=8.0), features)
+
+    assert summary["type_ceilings"] == []
+    assert summary["conservative_violations"] == []
+    assert check(summary) == []
+
+
 def test_height_report_skips_the_share_check_for_a_pre_v3_job():
     # A v2.1.1 job has no pool tail counts: the share check cannot run, but the
     # report must not fail it for that reason.

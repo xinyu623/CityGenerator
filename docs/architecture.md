@@ -165,17 +165,21 @@ Untagged buildings sample the selection's tagged heights (`HeightSampler` in
 footprint area (when the band holds none, the draw falls back to the weighted
 pool of every observation with a known area) and are weighted by a log-area
 Gaussian kernel plus a `building`-type factor: same type ×2, same type group
-×1.5. `prepare_buildings` records the rule that produced each height
-(`similarity`, `type_cap`, `conservative_cap`), the pool's and the sample's
-≥100 m/≥250 m counts (per OSM building, with `sampled` still counting prepared
-parts), the band-fallback draws, and the optional conservative bound
-(`height ≤ k·sqrt(area)`, `k = 8`, `CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE`). The
-`buildings.height_sampling` block keeps one key set in every mode: when sampling
-is off or the pool is too small, `enabled: false` and `reason`
-(`disabled` / `too_few_known_heights`) sit beside zero counters and the
-configured parameters.
+×1.5. A draw below the target's own base is raised to `base + level_height`
+(one storey above the base) and records the `base_floor` rule, so a tagged
+`min_height` can never produce a shell shorter than its base.
+`prepare_buildings` records the rule that produced each height
+(`similarity`, `type_cap`, `conservative_cap`, `base_floor`), the pool's and
+the sample's ≥100 m/≥250 m counts (per OSM building, with `sampled` still
+counting prepared parts), the band-fallback draws, and the optional
+conservative bound (`height ≤ k·sqrt(area)`, `k = 8`,
+`CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE`). The `buildings.height_sampling` block
+keeps one key set in every mode: when sampling is off or the pool is too small,
+`enabled: false` and `reason` (`disabled` / `too_few_known_heights`) sit beside
+zero counters and the configured parameters.
 `python -m app.services.height_report --output <job>` reports the same numbers
-from a finished output directory and names the reason when sampling did not run.
+from a finished output directory and names the reason when sampling did not run;
+a forced `base_floor` height is exempt from its ceiling and slenderness checks.
 
 ### 5. Terrain (DEM)
 

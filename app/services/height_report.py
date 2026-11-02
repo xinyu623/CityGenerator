@@ -106,7 +106,12 @@ def summarize(
         building = str(entry.get("building") or "")
         osm_id = entry.get("osm_id")
         group = building_type_group(building)
-        rules[str(entry.get("height_rule") or "unknown")] += 1
+        rule = str(entry.get("height_rule") or "unknown")
+        # A height forced up by the building's own min_height base is not a
+        # sampling choice, so the type ceiling and the slenderness bound do not
+        # apply to it (the geometry must not collapse below the base).
+        forced_by_base = rule == "base_floor"
+        rules[rule] += 1
 
         bucket = groups.setdefault(
             group, {"count": 0, "heights": [], "above_100m": 0, "above_250m": 0}
@@ -130,7 +135,12 @@ def summarize(
                 }
             )
             bound = slenderness_k * math.sqrt(area)
-            if conservative and slenderness_k > 0.0 and height > bound + _ROUNDING_TOLERANCE_M:
+            if (
+                conservative
+                and slenderness_k > 0.0
+                and not forced_by_base
+                and height > bound + _ROUNDING_TOLERANCE_M
+            ):
                 conservative_violations.append(
                     {
                         "osm_id": osm_id,
@@ -142,7 +152,7 @@ def summarize(
                 )
 
         cap = sampled_height_cap(building)
-        if cap is not None and height > cap + _ROUNDING_TOLERANCE_M:
+        if cap is not None and not forced_by_base and height > cap + _ROUNDING_TOLERANCE_M:
             type_ceilings.append(
                 {
                     "osm_id": osm_id,

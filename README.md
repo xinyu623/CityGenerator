@@ -253,7 +253,9 @@ Useful `metadata.json → terrain` fields:
    distribution, from footprints within `0.5–2×` their area, weighted by area
    similarity and building type (`buildings.height_sampling`), with a sampled
    ceiling for low-rise/civic/industrial types. Each sampled building records the
-   rule in `buildings.geojson → height_rule`. Add `--conservative-heights` for a
+   rule in `buildings.geojson → height_rule`; a building whose own `min_height`
+   lifts its base gets at least one storey above it (`base_floor`). Add
+   `--conservative-heights` for a
    calmer skyline: sampled heights are also capped at `k·√area` (`k = 8`). Run
    `python -m app.services.height_report --output <job> --check` to compare the
    sampled tail with the tagged pool. The skyline is locally plausible but still

@@ -222,7 +222,8 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
    `0.5–2` 倍轮廓面积范围内（带内没有样本时退化为全部已知面积样本的加权池），
    并按面积相似度和建筑类型加权（`buildings.height_sampling`）；车站、学校、展馆、仓储等
    低层类型另有采样上限。每栋采样建筑在 `buildings.geojson → height_rule` 中
-   记录取值规则。加 `--conservative-heights` 可得到更平缓的天际线：采样高度
+   记录取值规则；自身 `min_height` 抬高了基座的建筑至少保留基座以上一层
+   （`base_floor`）。加 `--conservative-heights` 可得到更平缓的天际线：采样高度
    再受 `k·√面积`（`k = 8`）约束。可用
    `python -m app.services.height_report --output <job> --check` 对比采样结果
    与已知高度池的尾部占比。天际线贴近本地实际，但仍是估计值，不是实测高度。

@@ -585,6 +585,30 @@ def test_tagged_low_rise_height_is_not_capped():
     assert station.height_m == pytest.approx(100.0)
 
 
+def test_sampled_heights_clear_a_min_height_base():
+    # building:min_level=6 puts the lowest part at 18 m; a draw from the pool's
+    # 3 m mode cannot make the total height shorter than the base, and one
+    # storey above the base is the minimum sensible shell.
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "height": "3"}, 0.000),
+        _feature(2, {"building": "apartments", "building:min_level": "6"}, 0.004),
+    ]
+
+    prepared = prepare_buildings(features, projector, min_height_samples=1, height_seed=5)
+
+    elevated = next(item for item in prepared.items if item.osm_id == 2)
+    assert elevated.height_source == "sampled"
+    assert elevated.base_m == pytest.approx(18.0)
+    assert elevated.height_m == pytest.approx(21.0)
+    assert elevated.height_rule == "base_floor"
+    assert prepared.height_sampling["rules"] == {"base_floor": 1}
+
+    built = extrude_prepared(prepared)
+    assert [record.osm_id for record in built.records] == [1, 2]
+    assert not any(issue.code == "TRIANGULATION_FAILED" for issue in built.warnings)
+
+
 def test_height_sampling_metadata_has_one_shape_in_every_mode():
     # Sampling can run, be unavailable (too few tagged heights), or be switched
     # off. Consumers branch on ``enabled``/``reason``, never on which keys exist.

@@ -108,9 +108,13 @@ For each footprint, height is resolved in this order:
    large footprint. Heights that the 2–300 m range had to clamp (for example an
    OSM `height=350`) are not observations and are skipped. Low-rise, civic, and
    industrial `building` types get a sampled ceiling (train station 60 m, school
-   35 m, museum 45 m, retail 30 m, warehouse 25 m, house 15 m, …). Every sampled
-   building records the rule that produced its height (`similarity`, `type_cap`,
-   or `conservative_cap`) as `height_rule` in `buildings.geojson`.
+   35 m, museum 45 m, retail 30 m, warehouse 25 m, house 15 m, …). A building
+   whose own `min_height`/`building:min_level` lifts its base cannot be shorter
+   than that base: when the draw lands below `base + level_height_m`, the height
+   is raised to that floor (one storey above the base) and records the
+   `base_floor` rule. Every sampled building records the rule that produced its
+   height (`similarity`, `type_cap`, `conservative_cap`, or `base_floor`) as
+   `height_rule` in `buildings.geojson`.
    `metadata.json → buildings.height_sampling` records the pool size, the
    weights, the rule counts (`sampled`, `sampled_buildings`, `rules`), the
    band-fallback draws, and how many sampled buildings and pool observations are
@@ -136,7 +140,9 @@ To check a finished job, run
 the sampled tail against the tagged pool, the rule counts, and the most slender
 samples, and `--check` fails when the sampled `>=250 m` share exceeds the pool's,
 a sampled height exceeds its type ceiling, or a conservative run exceeds
-`k × sqrt(area)`. A job from a version before this one has no pool tail in its
+`k × sqrt(area)`. A height forced up by its own base (`base_floor`) is exempt
+from the ceiling and bound checks, because the base, not the sampling choice,
+set it. A job from a version before this one has no pool tail in its
 metadata, so the report skips the share check and says so.
 
 `min_height` raises the base of the prism. If a height is outside the accepted

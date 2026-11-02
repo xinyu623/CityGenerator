@@ -693,10 +693,19 @@ def prepare_buildings(
         if sampler is not None and height.source == "default":
             footprint_area_m2 = math.fsum(polygon.area for polygon in polygons)
             sampled = sampler.draw(footprint_area_m2, feature.tags.get("building"))
-            rules[sampled.rule] += 1
+            sampled_height = sampled.height_m
             height_rule = sampled.rule
+            # A tagged min_height/building:min_level lifts the base; the draw is
+            # a total height, so it cannot put the roof below that base (and one
+            # storey above it is the thinnest shell that still makes sense).
+            if height.base_m > 0.0:
+                floor = min(300.0, height.base_m + float(level_height_m))
+                if sampled_height < floor:
+                    sampled_height = floor
+                    height_rule = "base_floor"
+            rules[height_rule] += 1
             height = HeightInfo(
-                height_m=sampled.height_m,
+                height_m=sampled_height,
                 base_m=height.base_m,
                 source="sampled",
                 clamped=height.clamped,
