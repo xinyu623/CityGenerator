@@ -169,9 +169,13 @@ Gaussian kernel plus a `building`-type factor: same type ×2, same type group
 (`similarity`, `type_cap`, `conservative_cap`), the pool's and the sample's
 ≥100 m/≥250 m counts (per OSM building, with `sampled` still counting prepared
 parts), the band-fallback draws, and the optional conservative bound
-(`height ≤ k·sqrt(area)`, `k = 8`, `CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE`).
+(`height ≤ k·sqrt(area)`, `k = 8`, `CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE`). The
+`buildings.height_sampling` block keeps one key set in every mode: when sampling
+is off or the pool is too small, `enabled: false` and `reason`
+(`disabled` / `too_few_known_heights`) sit beside zero counters and the
+configured parameters.
 `python -m app.services.height_report --output <job>` reports the same numbers
-from a finished output directory.
+from a finished output directory and names the reason when sampling did not run.
 
 ### 5. Terrain (DEM)
 
@@ -224,11 +228,17 @@ source:
 - Rings are oriented counter-clockwise (exterior) with holes preserved.
 - Slivers below `min_building_area_m2` and holes below 1 m² are dropped.
 - Optional simplification uses `preserve_topology=True`.
-- `trimesh.creation.extrude_polygon` triangulates the polygon (mapbox-earcut)
-  and creates top/bottom caps and side walls.
-- Degenerate faces are removed, winding/normals are repaired, and each shell is
-  checked for watertightness, consistent winding, finite vertices, and positive
-  volume before it is accepted.
+- `_extrude_polygon` triangulates the polygon (mapbox-earcut) and builds the
+  closed shell with shared ring vertices: caps from the triangulation, wall
+  quads reusing the cap indexes. It produces exactly the triangles
+  `trimesh.creation.extrude_polygon` would, without the duplicate wall vertices
+  and the merge pass that function needs.
+- Each shell is measured in one sorted-edge pass (`_shell_report`): every
+  undirected edge exactly twice, every directed edge once, volume from the
+  divergence theorem, no degenerate face, finite coordinates. Only a shell that
+  pass cannot accept goes through the generic repair chain (drop degenerate
+  faces, fix winding and inversion); every accepted shell is watertight with
+  consistent winding and a positive volume.
 - If `base_m <= 0` and `embed_depth_m > 0`, the shell is extended below its
   ground height by the embed depth. This avoids a coplanar
   building-bottom/ground interface.
@@ -259,11 +269,16 @@ There is no open plane mode.
 
 `app/services/city.py` performs the fusion:
 
-1. Boolean-union all closed building shells plus the slab with Manifold.
-2. Validate faces, watertightness, winding, finite vertices, volume, and
-   non-manifold edges.
-3. Write the result to binary STL, read it back, and check watertightness and
-   non-manifold edges again.
+1. Boolean-union all closed building shells plus the slab with Manifold. The
+   engine's per-input volume census is disabled (`check_input_volumes=False`)
+   because `extrude_prepared` already validated every shell; a direct
+   `fuse_city` caller keeps it.
+2. Validate the union: faces, watertightness, winding, finite vertices, volume,
+   and non-manifold edges.
+3. Write the result to binary STL, read it back, check watertightness and
+   non-manifold edges, and validate the reloaded mesh. The bytes and the
+   reloaded mesh are kept on `FusedCity` (`stl_bytes`, `stl_mesh`) for the
+   output stage, so the city is exported and loaded exactly once.
 4. If the round-trip fails, merge vertices in memory, collect every edge with
    more than two incident faces, cluster nearby bad edges, add one solid box
    with 0.4 m padding around each cluster, and repeat the union. Up to
@@ -276,7 +291,8 @@ solid requires a small amount of added material at the contact. The weld columns
 are that material. `city.weld_repairs` records how many were needed.
 
 Binary STL is written with an 80-byte header, uint32 triangle count, and 50 bytes
-per triangle. `write_outputs` validates the loaded file again and records
+per triangle. `write_outputs` writes the bytes `fuse_city` validated (exporting
+and validating only when a hand-built `FusedCity` carries none) and records
 `triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
 `non_manifold_edges`, `base_thickness_m`, `terrain_triangle_count`,
 `union_engine`, and `weld_repairs` under metadata `city`.
@@ -316,8 +332,9 @@ creating a second bottom patch. `TerrainGrid.surface_normal` mirrors
 ## Frontend
 
 - `app/static/js/map.js` wraps Leaflet: OSM tiles, two-click rectangle
-  selection, live preview, area calculation with haversine distances, and
-  selection readout.
+  selection, live preview, area on the WGS84 ellipsoid (the closed-form
+  graticule-cell integral, which matches the backend's pyproj area to ~1e-8),
+  haversine width/height distances, and the selection readout.
 - `app/static/js/api.js` is a small fetch wrapper with structured API errors.
 - `app/static/js/app.js` owns UI state: config defaults, form → request payload,
   polling, progress, warnings, result cards, and cancel.
@@ -395,18 +412,28 @@ cleanup, extrusion, and STL writing. For a 671-building / 0.98 km² area
 `build`, `ground`, `fuse`, `export`, and `total` for every run (a snapshot taken
 just before `metadata.json` is written; the zip comes after).
 
-For the cached 4×4 km Chongqing sample (1 696 buildings, 84 654 triangles,
-39 460 terrain triangles) `total` is ≈14–15 s: `build` ≈8–10 s dominates, `fuse`
-≈2.2–2.5 s, `export` ≈1.2–1.8 s. Profiling found the boolean union itself is
-only ≈0.3 s — `trimesh` already runs a balanced pairwise cascade, `Manifold`'s
+For the cached 4×4 km Chongqing sample (1 696 buildings, 87 388 triangles,
+39 460 terrain triangles) the run is now ≈4.2 s on an unloaded machine
+(`build` ≈1.0 s, `fuse` ≈0.8 s, `export` ≈0.33 s); it was ≈5.2 s before the
+build-stage work. Profiling found the per-shell `trimesh` bookkeeping dominated
+`build`, not the extrusion: every shell was copied, run through the generic
+repair chain even when closed, and measured through several cached properties.
+The shell is now built with shared ring vertices and measured in one sorted-edge
+pass, and the repair chain only runs for a shell that pass rejects; interleaved
+before/after is `build` 1.84 → 1.01 s. The city STL is exported and loaded once
+(`FusedCity.stl_bytes`/`stl_mesh` feed the output stage) and the boolean engine
+skips its per-input volume census because every shell was validated, so
+`export` falls 0.58 → 0.33 s and `fuse` stays ≈0.8 s (it now owns the
+reloaded-file validation that used to run in `export`).
+
+The earlier fuse work remains relevant: the boolean union itself is only
+≈0.3 s — `trimesh` already runs a balanced pairwise cascade, `Manifold`'s
 `batch_boolean` is only marginally faster, and grouping shells across threads
-was slower (the Manifold bindings hold the GIL), so the post-union work was the
-lever: the collapsed-vertex nudge, the non-manifold edge census, and repeated
-validation. Those now cost about half of what they did (fuse 4.41 → ≈2.4 s on
-the earlier 81 864-triangle geometry, with identical triangles, volume, zero
-welds, watertight). Sustained CPU load throttles the development machine by
+was slower (the Manifold bindings hold the GIL) — so the post-union work was
+the lever: the collapsed-vertex nudge, the non-manifold edge census, and
+repeated validation. Sustained CPU load throttles the development machine by
 roughly 4×, so compare before/after runs interleaved rather than against an
-idle-machine baseline.
+idle-machine baseline (the throttled 4×4 run is ≈12–15 s).
 
 Per-building geometry itself is fast (about 0.6 s for 400 buildings in a
 profile); the original cache-hit bottleneck was rewriting `job.json` for every

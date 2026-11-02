@@ -354,6 +354,21 @@ $env:CITYGEN_RUN_NETWORK = "1"
 采样、轮廓最低点保守取值、闭合地形实体、坡地建筑的并集水密性，以及
 Terrarium 瓦片解码与拼接。
 
+CI（`.github/workflows/ci.yml`）在推送和 PR 时于 Ubuntu 与 Windows 两个任务上
+运行 `ruff check app tests` 与离线 `pytest`，两个任务都设置了超时。
+`tests/test_golden.py` 在合成坡地上生成固定的 300 m、25 栋建筑街区，并与
+`tests/golden/city_300m.json` 比较三角形数、体积、表面积、包围盒、焊接次数、
+水密性、非流形边数和地形边界最大台阶，因此几何改动会以可审阅的 diff 出现。
+该 golden 文件同时记录产出指标的依赖版本（`python`、`trimesh`、`manifold3d`、
+`pyproj`、`shapely`、`numpy`）；指标不匹配时会打印两套版本，依赖升级在未改动
+的提交上失败时能够自我解释。有意改动后重新生成并审阅该 JSON：
+
+```powershell
+$env:UPDATE_GOLDEN = "1"
+.\.venv\Scripts\python.exe -m pytest tests/test_golden.py
+Remove-Item Env:UPDATE_GOLDEN
+```
+
 ## 限制（v2）
 
 地形是从约 30 m 分辨率 DEM 重采样并平滑出的 30 m 网格：不是测绘成果，没有

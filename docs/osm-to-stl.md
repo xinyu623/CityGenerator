@@ -118,7 +118,11 @@ For each footprint, height is resolved in this order:
    (a multi-polygon building once per part), `sampled_buildings` counts distinct
    OSM buildings, and the tail counts are per building. `type_capped` counts
    draws whose final rule is `type_cap`; a draw that the conservative bound
-   lowers again reports `conservative_cap`.
+   lowers again reports `conservative_cap`. The block has the same keys in every
+   mode: when sampling is switched off or the selection has too few tagged
+   heights, `enabled` is false, `reason` is `disabled` or
+   `too_few_known_heights`, the counters are zero, and the configured
+   parameters stay in place.
 
    **Conservative mode.** `--conservative-heights`
    (`CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=true`) also caps every sampled height
@@ -181,7 +185,16 @@ closed shell has:
 - a top cap at `z = height`,
 - side walls along every exterior and interior ring,
 - volume approximately `A × (h + e)` for a vertical prism,
-- outward normals after `trimesh.repair.fix_winding` / `fix_normals`.
+- outward normals.
+
+The shell is built from the polygon's own triangulation: the caps use the
+triangles, and the wall quads reuse the cap vertex indexes, so no duplicate
+wall vertices (and no vertex merge) are needed to make it closed. It is then
+measured in one sorted-edge pass — every undirected edge exactly twice, every
+directed edge once, volume from the divergence theorem, no degenerate face,
+finite coordinates. Only a shell that pass cannot accept goes through the
+generic `trimesh` repair chain (drop degenerate faces, fix winding and
+inversion).
 
 Every shell is checked before it enters the output:
 
@@ -211,7 +224,10 @@ median, built as a closed block (DEM top, vertical skirt, flat bottom). With
 terrain disabled it is a flat slab at `z=0`.
 
 `fuse_city` boolean-unions the building shells and the base with Manifold and
-validates the result. If two buildings touch only at an edge or corner, their
+validates the result. Every shell was already validated individually, so the
+pipeline tells the engine to skip its own per-input volume census
+(`check_volume=False`); the fused mesh, the STL round-trip, and the written file
+are all still validated. If two buildings touch only at an edge or corner, their
 volumes have no common interior; the union has an edge shared by four faces and
 cannot be a manifold surface. The repair pass:
 
@@ -221,7 +237,10 @@ cannot be a manifold surface. The repair pass:
 3. re-runs the union;
 4. repeats up to eight times if new contacts appear.
 
-The written STL is then loaded again and checked. `metadata.json → city` records
+`fuse_city` exports the result to binary STL and reads it back to prove the
+file is still closed; it keeps those bytes and the reloaded mesh, and
+`write_outputs` writes and classifies that same file instead of exporting and
+reloading it again. `metadata.json → city` records
 `triangle_count`, `watertight`, `winding_consistent`, `volume_m3`,
 `non_manifold_edges`, `base_thickness_m`, `terrain_triangle_count`,
 `union_engine`, and `weld_repairs`.
@@ -328,6 +347,10 @@ really lies on the terrain is always `ground`, however steep the slope.
 - Patch classification tests the whole triangle (centroid and vertices) and its
   normal, so steep terrain no longer hides roofs in `ground`; a three-sided
   sliver that only touches the ground plane stays `wall`.
+- Very large low-rise footprints (plazas, markets — for example 21 964 m² at
+  3 m) are kept: they are real OSM shapes, and `min_building_area_m2` is a lower
+  bound, not a size filter. Correct them in OSM or post-process the mesh if they
+  distort a study.
 - Public Overpass endpoints can be slow or rate-limited; the cache helps after
   the first request. DEM tiles are cached the same way.
 - `city.stl` is a validated closed surface, but it is not a volume mesh or a

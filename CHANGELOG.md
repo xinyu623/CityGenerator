@@ -4,6 +4,56 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- Build stage ~1.8× faster on the cached 4×4 km sample. Each building shell is
+  now extruded with shared ring vertices (no duplicate wall vertices, no vertex
+  merge) and measured in one sorted-edge pass — closure, winding, volume,
+  degenerate faces, finite coordinates — instead of `trimesh`'s cached
+  properties; the generic `copy`/`update_faces`/`fix_winding`/`fix_normals`
+  chain runs only for a shell the fast path cannot accept. The produced
+  triangles are identical to `trimesh.creation.extrude_polygon`
+  (`test_extruded_shell_matches_trimesh_polygon_construction`).
+  `_contact_indices` uses one `STRtree.query(..., predicate="dwithin")` instead
+  of one buffered query per footprint, and `TerrainGrid.min_over` samples the
+  rings and the representative point in one `surface_z` call.
+- The city STL is exported once. `fuse_city` keeps the bytes it already
+  round-tripped to prove the file is closed, plus the mesh read back from them
+  (`FusedCity.stl_bytes`/`stl_mesh`), and validates that file; `write_outputs`
+  writes and classifies those bytes instead of exporting, reloading, and
+  validating the city a second time. The pipeline also passes
+  `check_input_volumes=False` to the boolean engine: every shell was validated
+  before the union, and the fused mesh and the written file still are.
+  Interleaved before/after on the cached 4×4 km sample (two runs per side):
+  `build` 1.84 → 1.01 s, `fuse` 0.73 → 0.79 s, `export` 0.58 → 0.33 s, `total`
+  5.21 → 4.23 s; the written `city.stl` is byte-identical (87 388 triangles,
+  volume 1.33733e9 m³, 0 weld repairs, patches unchanged).
+- CI now has a `windows-latest` job next to the Ubuntu one — the GBK console bug
+  was Windows-only and the docs are PowerShell-first — and both jobs carry
+  `timeout-minutes`. `tests/golden/city_300m.json` records the versions that
+  produced its metrics (`python`, `trimesh`, `manifold3d`, `pyproj`, `shapely`,
+  `numpy`), and a golden mismatch prints both version sets with the changed
+  names, so a dependency bump on an unchanged commit explains itself. A
+  version-only change does not fail the test.
+- The UI selection area uses the WGS84 ellipsoid now, the same datum the backend
+  validates against: a 4×4 km selection reads 16.005 km² instead of the planar
+  16.000 km², so the front end and `max_area_km2` agree. `map.js` computes the
+  cell area in closed form; `tests/test_frontend_area.py` runs the shipped
+  module under Node and compares it with `bbox_area_km2` on five boxes (the test
+  skips when Node is not installed).
+- `metadata.json → buildings.height_sampling` keeps one key set in every mode.
+  When sampling is switched off or has too few tagged heights, `enabled: false`
+  and `reason` (`disabled` / `too_few_known_heights`) sit beside zero counters,
+  empty `rules`/`above_100m_by_group`, and the configured parameters, so a
+  consumer never has to branch on which keys exist. The height report prints
+  `disabled (<reason>)` for such a job.
+- Decisions on the last two data-hygiene questions: very large low-rise OSM
+  footprints (plazas, markets) are kept — they are real shapes, and the
+  documented control (`min_building_area_m2`) only drops small buildings, so a
+  new size filter would delete real city fabric; the optional OBJ with
+  ground/wall groups is not added, because it would grow every job and ZIP while
+  `patches.json` already carries the same grouping in STL order. Both are
+  recorded in `docs/osm-to-stl.md`; an opt-in `--obj` flag remains the escape
+  hatch.
+
 - `patches.json` ground detection now tests the whole triangle and its normal:
   the centroid and all three vertices must lie within
   `CITYGEN_PATCH_GROUND_TOLERANCE_M` of the terrain surface, and the face normal
