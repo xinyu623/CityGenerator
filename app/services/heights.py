@@ -15,11 +15,18 @@ _FEET_MARKERS = ("ft", "feet", "foot", "'")
 # Sampling weights. A draw prefers observations of the same building type, then
 # of the same type group, and observations whose footprint area is close to the
 # target's on a log scale. The area kernel is asymptotic rather than a hard band:
-# a far-away observation fades out instead of being cut off, so a pool with no
-# close match still samples instead of failing over to the whole pool.
+# a far-away observation fades out instead of being cut off.
+#
+# A candidate must also sit within AREA_RATIO_MIN..AREA_RATIO_MAX of the target
+# area. Without that guard a 112 m2 building can draw a 239 m tower whose own
+# footprint is 1342 m2, because the kernel alone only makes it unlikely, never
+# impossible. When no observation is in the band, the nearest observations are
+# used instead, so a large or unusual footprint still samples.
 TYPE_WEIGHT = 2.0
 GROUP_WEIGHT = 1.5
-AREA_BANDWIDTH_LOG = 0.7
+AREA_BANDWIDTH_LOG = 0.5
+AREA_RATIO_MIN = 0.5
+AREA_RATIO_MAX = 2.0
 
 # ``building`` tag values, grouped so a sparse tag can borrow from its neighbours
 # instead of falling back to the whole pool.
@@ -281,10 +288,12 @@ class HeightSampler:
     result does not repeat only a handful of exact values.
 
     Known heights may be paired with their footprint area and building type: a
-    draw then weights every observation by how close its area is (log scale) and
-    whether it shares the target's type or type group. OSM tags over-represent
-    towers, so this keeps a shed from copying a skyscraper while leaving the
-    selection's own shape intact.
+    draw then only considers observations whose area is within
+    ``AREA_RATIO_MIN..AREA_RATIO_MAX`` of the target's (falling back to the
+    nearest ones when the band is empty), and weights those by how close their
+    area is on a log scale and whether they share the target's type or type
+    group. OSM tags over-represent towers, so this keeps a shed from copying a
+    skyscraper while leaving the selection's own shape intact.
 
     ``conservative`` adds an optional geometric plausibility bound,
     ``height <= slenderness_k * sqrt(area)``, which trims the slenderness tail
@@ -390,6 +399,16 @@ class HeightSampler:
                 weights.append(weight)
         if not indexes or sum(weights) <= 0.0:
             return everything, None, "pool"
+        low = target * AREA_RATIO_MIN
+        high = target * AREA_RATIO_MAX
+        in_band = [
+            (index, weight)
+            for index, weight in zip(indexes, weights, strict=True)
+            if low <= self._areas[index] <= high
+        ]
+        if in_band:
+            indexes = [index for index, _weight in in_band]
+            weights = [weight for _index, weight in in_band]
         return indexes, weights, "similarity"
 
     def draw(

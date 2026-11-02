@@ -201,6 +201,42 @@ def test_building_type_group_maps_osm_values(building_type, group):
     assert building_type_group(building_type) == group
 
 
+def test_height_sampler_ignores_observations_far_from_the_target_area():
+    # For a 112 m2 building the only in-band observation is the 200 m2 one; the
+    # nearer-in-log-space 30 m2 shed is a different size class and must not win.
+    sampler = HeightSampler(
+        [KnownHeight(3.0, 30.0, "yes"), KnownHeight(12.0, 200.0, "yes")],
+        jitter=0.0,
+        seed=0,
+    )
+
+    values = {sampler.draw(112.0, "yes").height_m for _ in range(200)}
+
+    assert values == {12.0}
+
+
+def test_height_sampler_falls_back_to_the_nearest_observation_outside_the_band():
+    sampler = HeightSampler([(4.0, 20.0), (100.0, 5000.0)], jitter=0.0, seed=1)
+
+    values = {sampler.draw(1_000_000.0).height_m for _ in range(200)}
+
+    # Neither observation is within 0.5-2x of a 1e6 m2 target, so the kernel
+    # still picks the nearer one instead of a uniform pool.
+    assert values == {100.0}
+
+
+def test_area_band_edges_are_inclusive():
+    sampler = HeightSampler(
+        [KnownHeight(3.0, 50.0, "yes"), KnownHeight(60.0, 200.0, "yes")],
+        jitter=0.0,
+        seed=0,
+    )
+
+    assert {sampler.draw(100.0, "yes").height_m for _ in range(200)} == {3.0, 60.0}
+    assert {sampler.draw(75.0, "yes").height_m for _ in range(200)} == {3.0}
+    assert {sampler.draw(110.0, "yes").height_m for _ in range(200)} == {60.0}
+
+
 def test_height_sampler_prefers_the_same_type_and_area():
     # Twenty walk-ups of 700 m2 and one 250 m tower: the kernel plus the type
     # weight must keep the tower out of a 700 m2 draw.

@@ -369,6 +369,7 @@ def test_sampled_buildings_record_the_rule_that_produced_their_height():
     assert sampling["rules"]["similarity"] == 1
     assert sampling["weighting"] == "type_and_area_similarity"
     assert sampling["type_factors"] == {"same_type": 2.0, "type_group": 1.5}
+    assert sampling["area_ratio"] == [0.5, 2.0]
     assert sampling["sampled_above_100m"] == 0
     assert sampling["pool_above_100m"] == 0
     assert sampling["above_100m_by_group"] == {"residential": 0}

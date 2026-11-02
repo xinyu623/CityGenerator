@@ -24,6 +24,8 @@ from shapely.geometry.polygon import orient
 
 from app.services.heights import (
     AREA_BANDWIDTH_LOG,
+    AREA_RATIO_MAX,
+    AREA_RATIO_MIN,
     GROUP_WEIGHT,
     TYPE_WEIGHT,
     HeightInfo,
@@ -384,6 +386,7 @@ def _sampling_metadata(
         "weighting": "type_and_area_similarity",
         "type_factors": {"same_type": TYPE_WEIGHT, "type_group": GROUP_WEIGHT},
         "area_bandwidth_log": AREA_BANDWIDTH_LOG,
+        "area_ratio": [AREA_RATIO_MIN, AREA_RATIO_MAX],
         "area_weighted": sampler.area_weighted,
         "conservative": bool(conservative),
         "slenderness_k": float(slenderness_k),
