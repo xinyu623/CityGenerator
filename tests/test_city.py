@@ -104,3 +104,20 @@ def test_separate_collapsed_vertices_moves_sub_tolerance_pairs_apart() -> None:
     distances = np.linalg.norm(mesh.vertices[:, None] - mesh.vertices[None], axis=-1)
     np.fill_diagonal(distances, np.inf)
     assert distances.min() >= COLLAPSE_TOLERANCE_M
+
+
+def test_separate_collapsed_vertices_finds_pairs_across_cell_boundaries() -> None:
+    # 0.51 mm and 0.49 mm from the origin are 0.02 mm apart but fall into
+    # different 0.5 mm buckets, and the higher bucket holds the lower index: the
+    # scan must look in both directions, not only "forward" cells.
+    mesh = trimesh.Trimesh(
+        vertices=[[0.00051, 0.0, 0.0], [0.00049, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        faces=[[0, 1, 2]],
+        process=False,
+    )
+
+    moved = separate_collapsed_vertices(mesh)
+
+    assert moved == 1
+    assert np.array_equal(mesh.vertices[0], [0.00051, 0.0, 0.0])
+    assert np.linalg.norm(mesh.vertices[1] - mesh.vertices[0]) >= COLLAPSE_TOLERANCE_M

@@ -38,12 +38,12 @@ def separate_collapsed_vertices(
     The mesh stays topologically identical (watertight, manifold); only a few
     vertices shift by about a millimetre, far below any modelling scale.
 
-    Vertices are bucketed into cells of ``tolerance_m``; only the 14
-    lexicographically positive neighbour directions (including the cell itself)
-    are visited, because the other 13 are the same pair seen from the other
-    endpoint. Packing the cell coordinates into a Python int keeps the lookup at
-    one dict access per candidate direction; at 0.5 mm over 4 km the packed key
-    is wider than int64, which is why plain Python ints are used.
+    Vertices are bucketed into cells of ``tolerance_m`` and every vertex scans
+    all 27 neighbouring cells. Scanning only the 14 "forward" directions would
+    miss a pair whose lower index sits in the higher cell. Packing the cell
+    coordinates into a Python int keeps the lookup at one dict access per
+    direction; at 0.5 mm over 4 km the packed key is wider than int64, which is
+    why plain Python ints are used.
     """
 
     if tolerance_m <= 0.0 or not len(mesh.vertices):
@@ -62,12 +62,11 @@ def separate_collapsed_vertices(
         buckets.setdefault(key, []).append(index)
         keys.append(key)
 
-    deltas = [0] + [
+    deltas = [
         dx * stride_x + dy * stride_y + dz
         for dx in (-1, 0, 1)
         for dy in (-1, 0, 1)
         for dz in (-1, 0, 1)
-        if (dx, dy, dz) > (0, 0, 0)
     ]
     shift = np.array([shift_m, shift_m, 0.0])
 
