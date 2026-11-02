@@ -8,8 +8,10 @@ from shapely.geometry import MultiPolygon, Polygon
 from app.services.buildings import (
     PreparedBuilding,
     PreparedBuildings,
+    ShellReport,
     _contact_indices,
     _known_height_pairs,
+    _repair_shell,
     _shell_report,
     build_meshes,
     clean_polygons,
@@ -104,7 +106,11 @@ def test_extruded_shell_matches_trimesh_polygon_construction():
         [[(8, 8), (12, 8), (12, 12), (8, 12)]],
     )
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
-    for shape in (square(), l_shape, with_hole):
+    clockwise = Polygon([(0, 0), (0, 10), (10, 10), (10, 0)])
+    collinear = Polygon([(0, 0), (5, 0), (10, 0), (10, 10), (0, 10)])
+    repeated = Polygon([(0, 0), (0, 0), (10, 0), (10, 10), (0, 10)])
+    buffered = square().buffer(0.05, join_style=2, mitre_limit=2.0)
+    for shape in (square(), l_shape, with_hole, clockwise, collinear, repeated, buffered):
         mesh = extrude_building(shape, height_m=12.0, base_m=0.0, embed_depth_m=0.0)
         reference = trimesh.creation.extrude_polygon(shape, 12.0)
         assert _triangle_signature(mesh) == _triangle_signature(reference)
@@ -119,6 +125,31 @@ def test_shell_report_accepts_a_closed_box():
     assert report.degenerate_faces == 0
     assert report.volume == pytest.approx(8.0)
     assert report.valid is True
+    assert report.needs_repair is False
+
+
+def test_shell_report_is_invalid_when_a_face_is_degenerate():
+    report = ShellReport(
+        watertight=True,
+        winding_consistent=True,
+        volume=1.0,
+        degenerate_faces=1,
+        finite=True,
+    )
+    assert report.needs_repair is True
+    assert report.valid is False
+
+
+def test_repair_shell_fixes_an_inverted_box():
+    mesh = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    mesh.invert()
+    assert _shell_report(mesh).volume < 0.0
+
+    _repair_shell(mesh)
+
+    report = _shell_report(mesh)
+    assert report.valid is True
+    assert report.volume == pytest.approx(8.0)
 
 
 def test_shell_report_rejects_an_open_shell():

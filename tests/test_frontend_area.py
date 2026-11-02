@@ -71,7 +71,7 @@ def test_selection_area_matches_the_backend_ellipsoid_area(tmp_path):
 
     payload = _js_area(tmp_path, boxes)
 
-    assert payload["areas"] == pytest.approx([_backend_area(box) for box in boxes], rel=1e-6)
+    assert payload["areas"] == pytest.approx([_backend_area(box) for box in boxes], abs=1e-6)
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")

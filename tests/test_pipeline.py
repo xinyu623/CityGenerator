@@ -6,15 +6,19 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import trimesh
 from shapely.geometry import Polygon
 
 from app.config import Settings
 from app.models.schemas import BBox, GenerateOptions, GenerateRequest, TerrainOptions
 from app.services.buildings import BuildingRecord, BuildResult
-from app.services.errors import AreaTooLargeError, NoBuildingsError
-from app.services.output import _geojson
+from app.services.city import FusedCity, fuse_city
+from app.services.errors import AreaTooLargeError, CityUnionError, NoBuildingsError
+from app.services.ground import build_ground
+from app.services.output import _geojson, write_outputs
 from app.services.overpass import OverpassResult
 from app.services.pipeline import run_pipeline
+from app.services.projection import projector_for_bbox
 from app.services.stl_export import load_stl_bytes, non_manifold_edge_count
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "overpass_tiny.json"
@@ -239,6 +243,98 @@ def test_pipeline_skips_the_engine_input_volume_check(tmp_path, monkeypatch, syn
 
     assert seen["check_input_volumes"] is False
     assert result.stats["city_watertight"] is True
+
+
+def _hand_built_output(
+    mesh: trimesh.Trimesh | None,
+) -> tuple[FusedCity, BuildResult, GenerateRequest]:
+    """A FusedCity without validated bytes, as a direct caller could build it."""
+
+    footprint = Polygon([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+    shell = trimesh.creation.box(extents=(10.0, 10.0, 12.0))
+    shell.apply_translation((5.0, 5.0, 5.5))
+    slab = build_ground((0.0, 0.0, 20.0, 20.0), mode="slab", thickness_m=1.0)
+    fused = fuse_city([shell], slab)
+    city = FusedCity(
+        mesh=fused.mesh if mesh is None else mesh,
+        base_bounds=fused.base_bounds,
+        base_thickness_m=1.0,
+        base_mesh=fused.base_mesh,
+    )
+    record = BuildingRecord(
+        osm_type="way",
+        osm_id=1,
+        tags={"building": "yes"},
+        source_geometry=footprint,
+        polygon_local=footprint,
+        height_m=12.0,
+        base_m=0.0,
+        height_source="tag",
+        area_m2=100.0,
+        mesh=shell,
+    )
+    build_result = BuildResult(
+        meshes=[shell],
+        records=[record],
+        bounds=(0.0, 0.0, 10.0, 10.0),
+    )
+    return city, build_result, GenerateRequest(bbox=BBOX)
+
+
+def test_write_outputs_exports_a_hand_built_fused_city(tmp_path):
+    # The defensive path for a FusedCity without validated bytes must still
+    # export, validate, and write a complete bundle.
+    city, build_result, request = _hand_built_output(None)
+    assert city.stl_bytes is None
+
+    bundle = write_outputs(
+        job_id="job",
+        job_dir=tmp_path,
+        request=request,
+        projector=projector_for_bbox(*BBOX.as_tuple()),
+        build_result=build_result,
+        overpass_meta={},
+        area_km2=0.0004,
+        city=city,
+        settings=Settings(data_dir=tmp_path),
+        warnings=[],
+    )
+
+    city_path = tmp_path / "output" / "city.stl"
+    assert city_path.is_file()
+    loaded = load_stl_bytes(city_path.read_bytes())
+    assert loaded.is_watertight
+    assert non_manifold_edge_count(loaded) == 0
+    assert bundle.triangle_count == len(city.mesh.faces)
+    metadata = json.loads((tmp_path / "output" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["city"]["triangle_count"] == len(city.mesh.faces)
+
+
+def test_write_outputs_does_not_write_an_unvalidated_fallback_city(tmp_path):
+    closed = trimesh.creation.box(extents=(10.0, 10.0, 12.0))
+    open_mesh = trimesh.Trimesh(
+        vertices=closed.vertices,
+        faces=closed.faces[:-1],
+        process=False,
+    )
+    city, build_result, request = _hand_built_output(open_mesh)
+
+    with pytest.raises(CityUnionError):
+        write_outputs(
+            job_id="job",
+            job_dir=tmp_path,
+            request=request,
+            projector=projector_for_bbox(*BBOX.as_tuple()),
+            build_result=build_result,
+            overpass_meta={},
+            area_km2=0.0004,
+            city=city,
+            settings=Settings(data_dir=tmp_path),
+            warnings=[],
+        )
+
+    assert not (tmp_path / "output" / "city.stl").exists()
+    assert not (tmp_path / "output" / "preview.stl").exists()
 
 
 def test_pipeline_without_terrain_is_flat(tmp_path, monkeypatch):

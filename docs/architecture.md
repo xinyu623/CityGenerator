@@ -413,18 +413,19 @@ cleanup, extrusion, and STL writing. For a 671-building / 0.98 km² area
 just before `metadata.json` is written; the zip comes after).
 
 For the cached 4×4 km Chongqing sample (1 696 buildings, 87 388 triangles,
-39 460 terrain triangles) the run is now ≈4.2 s on an unloaded machine
-(`build` ≈1.0 s, `fuse` ≈0.8 s, `export` ≈0.33 s); it was ≈5.2 s before the
-build-stage work. Profiling found the per-shell `trimesh` bookkeeping dominated
-`build`, not the extrusion: every shell was copied, run through the generic
-repair chain even when closed, and measured through several cached properties.
-The shell is now built with shared ring vertices and measured in one sorted-edge
-pass, and the repair chain only runs for a shell that pass rejects; interleaved
-before/after is `build` 1.84 → 1.01 s. The city STL is exported and loaded once
-(`FusedCity.stl_bytes`/`stl_mesh` feed the output stage) and the boolean engine
-skips its per-input volume census because every shell was validated, so
-`export` falls 0.58 → 0.33 s and `fuse` stays ≈0.8 s (it now owns the
-reloaded-file validation that used to run in `export`).
+39 460 terrain triangles) the run is now ≈4.3 s on an unloaded machine
+(`build` ≈0.89 s, `fuse` ≈0.81 s, `export` ≈0.34 s); the same interleaved
+protocol measured the baseline at ≈5.8 s. Profiling found the per-shell
+`trimesh` bookkeeping dominated `build`, not the extrusion: every shell was
+copied, run through the generic repair chain even when closed, and measured
+through several cached properties. The shell is now built with shared ring
+vertices and measured in one sorted-edge pass whose report is also the
+acceptance gate, and the repair chain only runs for a shell that report
+rejects; interleaved before/after is `build` 2.03 → 0.89 s. The city STL is
+exported and loaded once (`FusedCity.stl_bytes`/`stl_mesh` feed the output
+stage) and the boolean engine skips its per-input volume census because every
+shell was validated, so `export` falls 0.63 → 0.34 s while `fuse` stays ≈0.8 s
+(it now owns the reloaded-file validation that used to run in `export`).
 
 The earlier fuse work remains relevant: the boolean union itself is only
 ≈0.3 s — `trimesh` already runs a balanced pairwise cascade, `Manifold`'s

@@ -21,11 +21,13 @@ All notable changes to CityGenerator are recorded here.
   writes and classifies those bytes instead of exporting, reloading, and
   validating the city a second time. The pipeline also passes
   `check_input_volumes=False` to the boolean engine: every shell was validated
-  before the union, and the fused mesh and the written file still are.
-  Interleaved before/after on the cached 4×4 km sample (two runs per side):
-  `build` 1.84 → 1.01 s, `fuse` 0.73 → 0.79 s, `export` 0.58 → 0.33 s, `total`
-  5.21 → 4.23 s; the written `city.stl` is byte-identical (87 388 triangles,
-  volume 1.33733e9 m³, 0 weld repairs, patches unchanged).
+  before the union, and the fused mesh and the written file still are. Each
+  accepted shell is censused once; the report that accepts it is the one
+  `extrude_building` already measured, and only a repaired shell is measured
+  again. Interleaved before/after on the cached 4×4 km sample (two runs per
+  side): `build` 2.03 → 0.89 s, `fuse` 0.81 → 0.81 s, `export` 0.63 → 0.34 s,
+  `total` 5.77 → 4.29 s; the written `city.stl` is byte-identical (87 388
+  triangles, volume 1.33733e9 m³, 0 weld repairs, patches unchanged).
 - CI now has a `windows-latest` job next to the Ubuntu one — the GBK console bug
   was Windows-only and the docs are PowerShell-first — and both jobs carry
   `timeout-minutes`. `tests/golden/city_300m.json` records the versions that

@@ -346,33 +346,29 @@ def write_outputs(
 
     # fuse_city already exported the city and reloaded it to prove the STL is
     # closed; reuse those bytes and that mesh instead of a second round-trip.
-    reused = city.stl_bytes is not None and city.stl_mesh is not None
-    if reused:
-        assert city.stl_bytes is not None and city.stl_mesh is not None
-        city_bytes = city.stl_bytes
-        loaded = city.stl_mesh
-    else:  # pragma: no cover - defensive path for a hand-built FusedCity
+    # The fallback for a hand-built FusedCity exports, loads, and validates
+    # before anything is written, so a failure never leaves a bad city.stl.
+    stl_bytes, stl_mesh = city.stl_bytes, city.stl_mesh
+    if stl_bytes is not None and stl_mesh is not None:
+        city_bytes = stl_bytes
+        loaded = stl_mesh
+        written_non_manifold = 0
+    else:
         city_bytes = export_stl_bytes(city.mesh)
-        loaded = None
-    write_bytes_atomic(output_dir / "city.stl", city_bytes)
-    write_bytes_atomic(
-        output_dir / "preview.stl",
-        export_stl_bytes(_preview_mesh(build_result, city)),
-    )
-
-    if loaded is None:
         loaded = load_stl_bytes(city_bytes)
+        if not loaded.is_watertight:
+            raise CityUnionError("city.stl 回读后不再是水密表面")
+        written_non_manifold = validate_city(loaded)
     if len(loaded.faces) != len(city.mesh.faces):
         raise CityUnionError(
             "city.stl 回读后的三角形数与导出前不一致",
             detail=f"before={len(city.mesh.faces)}, after={len(loaded.faces)}",
         )
-    if reused:
-        written_non_manifold = 0
-    else:  # pragma: no cover - defensive path for a hand-built FusedCity
-        if not loaded.is_watertight:
-            raise CityUnionError("city.stl 回读后不再是水密表面")
-        written_non_manifold = validate_city(loaded)
+    write_bytes_atomic(output_dir / "city.stl", city_bytes)
+    write_bytes_atomic(
+        output_dir / "preview.stl",
+        export_stl_bytes(_preview_mesh(build_result, city)),
+    )
 
     kinds = face_kinds(
         loaded,

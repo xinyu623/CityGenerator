@@ -76,15 +76,21 @@ class ShellReport:
     finite: bool
 
     @property
+    def needs_repair(self) -> bool:
+        """True when the generic repair pass has something to fix."""
+
+        return (
+            self.degenerate_faces > 0
+            or not self.watertight
+            or not self.winding_consistent
+            or self.volume <= 0.0
+        )
+
+    @property
     def valid(self) -> bool:
         """The per-shell acceptance test used before a shell enters the union."""
 
-        return (
-            self.watertight
-            and self.winding_consistent
-            and self.volume > 0.0
-            and self.finite
-        )
+        return self.finite and not self.needs_repair
 
 
 def _shell_report(mesh: trimesh.Trimesh) -> ShellReport:
@@ -93,9 +99,13 @@ def _shell_report(mesh: trimesh.Trimesh) -> ShellReport:
     ``is_watertight``, ``is_winding_consistent``, ``volume``, and the
     degenerate-face mask are four separate edge censuses (and volume runs the
     full mass-properties integral); at ~1 700 shells that costs more than the
-    extrusions themselves. One sorted-edge pass yields all of it with the same
-    definitions trimesh uses: every undirected edge exactly twice, every
-    directed edge once, and volume from the divergence theorem.
+    extrusions themselves. One sorted-edge pass yields all of it: every
+    undirected edge exactly twice for closure, every directed edge once for
+    winding, volume from the divergence theorem, and the same degenerate-face
+    rule trimesh uses (a triangle OBB side below ``tol.merge``).
+
+    Winding is reported only for a closed shell; trimesh keeps its flag on an
+    open patch, but an open patch is not a shell this pipeline accepts.
     """
 
     faces = np.asarray(mesh.faces)
@@ -233,7 +243,7 @@ class BuildResult:
     height_sampling: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
     warnings: list[Issue] = field(default_factory=list)
-    # Every record is appended only after ``_mesh_is_valid`` accepted its shell,
+    # Every record is appended only after the shell report accepted its shell,
     # so this is true by construction; recording it keeps the metadata writer
     # from re-running a trimesh closure census over every shell.
     each_shell_watertight: bool = True
@@ -357,17 +367,19 @@ def project_geometry(
     return MultiPolygon([project_polygon(part, projector) for part in geometry.geoms])
 
 
-def extrude_building(
+def _extrude_shell(
     polygon: Polygon,
     height_m: float,
     base_m: float = 0.0,
     embed_depth_m: float = 0.5,
     z_offset: float = 0.0,
-) -> trimesh.Trimesh:
-    """Extrude a valid local-metric polygon into a closed building shell.
+) -> tuple[trimesh.Trimesh, ShellReport]:
+    """Build one closed shell and return it with the report that accepted it.
 
-    ``z_offset`` shifts the whole shell vertically, which is how a building is
-    placed on the terrain minimum under its footprint.
+    The report is measured here only once for a shell that is already closed
+    (the common case); the repair pass gets a second measurement because it
+    changes the mesh. ``extrude_prepared`` then accepts or skips the shell from
+    this report instead of re-censusing it.
     """
 
     height_above_base = float(height_m) - float(base_m)
@@ -385,13 +397,9 @@ def extrude_building(
         raise ValueError("triangulation produced an empty mesh")
 
     report = _shell_report(mesh)
-    if (
-        report.degenerate_faces
-        or not report.watertight
-        or not report.winding_consistent
-        or report.volume <= 0.0
-    ):
+    if report.needs_repair:
         _repair_shell(mesh)
+        report = _shell_report(mesh)
 
     if base_m > 0.0:
         mesh.apply_translation((0.0, 0.0, float(base_m)))
@@ -400,14 +408,30 @@ def extrude_building(
     if z_offset:
         mesh.apply_translation((0.0, 0.0, float(z_offset)))
 
+    return mesh, report
+
+
+def extrude_building(
+    polygon: Polygon,
+    height_m: float,
+    base_m: float = 0.0,
+    embed_depth_m: float = 0.5,
+    z_offset: float = 0.0,
+) -> trimesh.Trimesh:
+    """Extrude a valid local-metric polygon into a closed building shell.
+
+    ``z_offset`` shifts the whole shell vertically, which is how a building is
+    placed on the terrain minimum under its footprint.
+    """
+
+    mesh, _report = _extrude_shell(
+        polygon,
+        height_m,
+        base_m=base_m,
+        embed_depth_m=embed_depth_m,
+        z_offset=z_offset,
+    )
     return mesh
-
-
-def _mesh_is_valid(mesh: trimesh.Trimesh) -> bool:
-    try:
-        return _shell_report(mesh).valid
-    except Exception:
-        return False
 
 
 def _update_bounds(
@@ -802,13 +826,14 @@ def extrude_prepared(
         ground = float(terrain.min_over(item.polygon_local)) if terrain is not None else 0.0
         relief = float(terrain.relief_over(item.polygon_local)) if terrain is not None else 0.0
         mesh = None
+        report: ShellReport | None = None
         # The grown footprint can occasionally trip the triangulator; fall back to
         # the exact footprint rather than dropping the building.
         for candidate in (expanded.get(index), item.polygon_local):
             if candidate is None:
                 continue
             try:
-                mesh = extrude_building(
+                mesh, report = _extrude_shell(
                     candidate,
                     height_m=item.height_m,
                     base_m=item.base_m,
@@ -818,12 +843,12 @@ def extrude_prepared(
                 break
             except Exception:
                 continue
-        if mesh is None:
+        if mesh is None or report is None:
             counts["TRIANGULATION_FAILED"] += 1
             result.skipped += 1
             continue
 
-        if not _mesh_is_valid(mesh):
+        if not report.valid:
             counts["INVALID_MESH"] += 1
             result.skipped += 1
             continue
