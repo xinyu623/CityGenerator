@@ -24,6 +24,10 @@ from typing import Any
 
 from app.services.heights import building_type_group, sampled_height_cap
 
+# buildings.geojson rounds height and area to 1 mm, so a cap that was applied
+# exactly can read back a fraction of a millimetre above its own bound.
+_ROUNDING_TOLERANCE_M = 1e-3
+
 
 def _share(part: int, total: int) -> float:
     return part / total if total else 0.0
@@ -120,7 +124,7 @@ def summarize(
                 }
             )
             bound = slenderness_k * math.sqrt(area)
-            if conservative and slenderness_k > 0.0 and height > bound + 1e-9:
+            if conservative and slenderness_k > 0.0 and height > bound + _ROUNDING_TOLERANCE_M:
                 conservative_violations.append(
                     {
                         "osm_id": osm_id,
@@ -132,7 +136,7 @@ def summarize(
                 )
 
         cap = sampled_height_cap(building)
-        if cap is not None and height > cap + 1e-9:
+        if cap is not None and height > cap + _ROUNDING_TOLERANCE_M:
             type_ceilings.append(
                 {
                     "osm_id": osm_id,

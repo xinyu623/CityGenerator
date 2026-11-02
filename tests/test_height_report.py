@@ -117,6 +117,16 @@ def test_height_report_aggregates_multipart_buildings():
     assert summary["slenderness"][0]["ratio"] == pytest.approx(50.0 / 200.0**0.5)
 
 
+def test_height_report_tolerates_the_geojson_rounding_of_a_capped_sample():
+    # heights.geojson rounds height and area to 1 mm, so a conservative cap can
+    # read back a few micrometres above its own bound; that is not a violation.
+    features = [_feature(1, 232.414, area_m2=844.0)]
+
+    summary = summarize(_metadata(conservative=True, slenderness_k=8.0), features)
+
+    assert check(summary) == []
+
+
 def test_height_report_loads_a_job_directory(tmp_path: Path):
     output = tmp_path / "output"
     output.mkdir(parents=True)
