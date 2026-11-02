@@ -198,6 +198,66 @@ def test_cli_passes_the_conservative_height_settings_to_the_pipeline(tmp_path, m
     assert captured["height_slenderness_k"] == pytest.approx(6.0)
 
 
+def test_cli_parser_accepts_the_edge_taper_flag():
+    args = build_parser().parse_args(["--bbox", "1,2,3,4", "--out", "x"])
+    assert args.terrain_edge_taper == pytest.approx(0.0)
+
+    tapered = build_parser().parse_args(
+        ["--bbox", "1,2,3,4", "--out", "x", "--terrain-edge-taper", "250"]
+    )
+    assert tapered.terrain_edge_taper == pytest.approx(250.0)
+
+
+def test_terrain_options_reject_an_oversized_taper():
+    from pydantic import ValidationError
+
+    from app.models.schemas import TerrainOptions
+
+    with pytest.raises(ValidationError):
+        TerrainOptions(edge_taper_m=2000.0)
+
+    assert TerrainOptions(edge_taper_m=250.0).edge_taper_m == pytest.approx(250.0)
+
+
+def test_pipeline_grows_the_terrain_frame_by_the_taper(
+    tmp_path, monkeypatch, synthetic_terrain
+):
+    import app.services.pipeline as pipeline_module
+
+    captured: dict[str, object] = {}
+
+    def spy(bounds, projector, **kwargs):
+        captured["bounds"] = bounds
+        captured.update(kwargs)
+        return synthetic_terrain(bounds, projector, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "build_terrain_grid", spy)
+    monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", _fake_fetch(FIXTURE))
+
+    code = main(
+        [
+            "--bbox",
+            BBOX,
+            "--out",
+            str(tmp_path / "job"),
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--terrain-edge-taper",
+            "120",
+        ]
+    )
+
+    assert code == 0
+    assert captured["edge_taper_m"] == pytest.approx(120.0)
+    core = captured["core_bounds"]
+    bounds = captured["bounds"]
+    assert core is not None
+    assert bounds[0] == pytest.approx(core[0] - 120.0)
+    assert bounds[1] == pytest.approx(core[1] - 120.0)
+    assert bounds[2] == pytest.approx(core[2] + 120.0)
+    assert bounds[3] == pytest.approx(core[3] + 120.0)
+
+
 def test_summary_prints_on_a_gbk_console(tmp_path, capsys):
     # Windows consoles default to GBK, which has no "²"; a finished job must
     # still print its summary there instead of crashing after the work is done.

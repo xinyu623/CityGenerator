@@ -225,18 +225,28 @@ def run_pipeline(
     if request.options.terrain.enabled:
         progress(35, "terrain", "获取地形高程数据")
 
+        taper = float(request.options.terrain.edge_taper_m)
+        terrain_bounds = (
+            base_bounds[0] - taper,
+            base_bounds[1] - taper,
+            base_bounds[2] + taper,
+            base_bounds[3] + taper,
+        )
+
         def terrain_progress(done: int, total: int) -> None:
             progress(_terrain_percent(done, total), "terrain", f"已获取 {done}/{total} 个高程瓦片")
 
         try:
             terrain = build_terrain_grid(
-                base_bounds,
+                terrain_bounds,
                 projector,
                 settings=settings,
                 resolution_m=request.options.terrain.resolution_m,
                 source=elevation_source,
                 cancel_event=cancel,
                 progress_cb=terrain_progress,
+                core_bounds=base_bounds,
+                edge_taper_m=taper,
             )
         except BuildCancelled as exc:
             raise JobCancelled("任务已取消") from exc

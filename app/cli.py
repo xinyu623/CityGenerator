@@ -53,6 +53,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--simplify", type=float, default=0.05, help="footprint simplification, m")
     parser.add_argument("--min-area", type=float, default=4.0, help="minimum footprint area, m2")
     parser.add_argument("--terrain-resolution", type=float, default=30.0, help="DEM grid spacing, m")
+    parser.add_argument(
+        "--terrain-edge-taper",
+        type=float,
+        default=0.0,
+        help=(
+            "ramp the terrain down to z=0 over this many metres outside the selection, "
+            "so the model border is flush with a CFD ground plane instead of a wall"
+        ),
+    )
     parser.add_argument("--no-terrain", action="store_true", help="use a flat 1 m slab instead of the DEM")
     conservative = parser.add_mutually_exclusive_group()
     conservative.add_argument(
@@ -133,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             "terrain": {
                 "enabled": not args.no_terrain,
                 "resolution_m": args.terrain_resolution,
+                "edge_taper_m": args.terrain_edge_taper,
             },
         },
         refresh=args.refresh,

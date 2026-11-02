@@ -76,9 +76,9 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 
 `--bbox` 顺序为 `south,west,north,east`；其余参数与请求选项一致：
 `--height`、`--level-height`、`--embed`、`--ground-margin`、`--simplify`、
-`--min-area`、`--terrain-resolution`、`--no-terrain`、`--refresh`、
-`--conservative-heights`、`--slenderness-k`、`--data-dir`（缓存根目录）、
-`--quiet`。输出与网页任务相同（`<out>/output/`
+`--min-area`、`--terrain-resolution`、`--terrain-edge-taper`、`--no-terrain`、
+`--refresh`、`--conservative-heights`、`--slenderness-k`、`--data-dir`
+（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
 下的 `city.stl` 等六个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
 
 ## 输出内容
@@ -153,6 +153,12 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
   范围内高差超过 3 m 的建筑会触发 `STEEP_FOOTPRINT` 警告。
 - DEM 瓦片缓存在 `data/cache/dem/`，TTL 与 OSM 缓存一致（7 天）。DEM 请求
   失败会让任务以 `TERRAIN_FETCH_FAILED` 失败，而不会悄悄退化成平地。
+- `terrain.edge_taper_m`（0–1000 m，默认 0）在所选范围外再加一圈坡道：地形网格
+  每侧外扩这么多米，带内高程按 smoothstep 过渡到 `z = 0`。地形块的侧壁高度等于
+  边界处的地形高程，山地城市（渝中半岛边界最高 156 m）放进 CFD 时就是一堵墙；
+  加上这圈坡道后模型外缘与地面齐平。代价是模型底面变大（4 km 框 + 250 m 坡道 =
+  4.5 km 见方），带内没有建筑，坡道三角形仍归 `ground`。默认 0 时行为与之前完全
+  一致。
 
 把 `terrain.enabled` 设为 `false` 即可回到 v1 的平整地面行为。
 

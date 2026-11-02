@@ -84,8 +84,9 @@ Without installing the console script:
 
 `--bbox` is `south,west,north,east`. Other flags mirror the request options:
 `--height`, `--level-height`, `--embed`, `--ground-margin`, `--simplify`,
-`--min-area`, `--terrain-resolution`, `--no-terrain`, `--refresh`,
-`--conservative-heights`, `--slenderness-k`, `--data-dir` (cache root), and
+`--min-area`, `--terrain-resolution`, `--terrain-edge-taper`, `--no-terrain`,
+`--refresh`, `--conservative-heights`, `--slenderness-k`, `--data-dir` (cache
+root), and
 `--quiet`. The CLI writes the same
 `city.stl`/`patches.json`/`metadata.json`/`buildings.geojson`/`README.txt`/
 `result.zip` bundle into `<out>/output/` and returns a non-zero exit code with
@@ -182,6 +183,15 @@ real landforms.
 - DEM tiles are cached under `data/cache/dem/` with the same 7-day TTL as the
   OSM cache. A failed DEM request fails the job with `TERRAIN_FETCH_FAILED`
   rather than silently producing a flat site.
+- `terrain.edge_taper_m` (0–1000 m, default 0) adds a ramp outside the selection:
+  the terrain grid grows by that many metres on every side and the height field
+  is faded to `z = 0` across the band with a smoothstep. The block's skirt is as
+  tall as the DEM on the frame edge, so a hilly site (the Chongqing peninsula
+  reaches 156 m above the datum on its border) presents a wall to an incoming
+  CFD flow; the ramp puts the model edge flush with the ground plane. The model
+  footprint grows accordingly (4 km selection + 250 m ramp = 4.5 km square), the
+  band carries no buildings, and its triangles stay in the `ground` patch.
+  `0` keeps the previous behaviour exactly.
 
 Set `terrain.enabled` to `false` for the flat v1 behaviour.
 

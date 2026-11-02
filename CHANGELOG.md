@@ -9,6 +9,26 @@ All notable changes to CityGenerator are recorded here.
   added maintenance; `pytest`, `ruff`, and the 300 m golden test remain as local
   checks (the golden file keeps its producer-version record).
 
+## [2.3.0] - 2026-11-02
+
+- New `terrain.edge_taper_m` option (`--terrain-edge-taper`, 0–1000 m, default
+  0). The terrain block's border is a vertical skirt whose height is the DEM
+  height on the frame edge; in a CFD domain that reads as a wall at the inlet. A
+  positive value grows the terrain grid by that many metres on every side and
+  multiplies the height field by a smoothstep weight that is 1 inside the
+  selected rectangle and 0 at the frame, so the model meets `z = 0` at its border
+  while the selection keeps its true relief. `0` is byte-identical to the
+  previous behaviour; `metadata.terrain.edge_taper_m` and
+  `edge_taper_core_bounds` record the band, and the ramp's triangles stay in the
+  `ground` patch. On the 4×4 km Chongqing selection the border previously stood
+  up to 156 m above the datum; with `--terrain-edge-taper 250` the model is
+  4.5 km square and the border is flat at `z = 0`.
+- Added the six-city core-area parameter set and runner
+  (`docs/plans/2026-11-02-six-city-core-stl.md`, `scratch/run_six.ps1`): 4×4 km
+  selections for Beijing (old city), Shanghai (Jing'an), Guangzhou (Zhujiang New
+  Town), Shenzhen (Futian), Changsha (Wuyi Square) and Chongqing
+  (Jiefangbei/Chaotianmen, the only terrain run).
+
 ## [2.2.0] - 2026-11-02
 
 - Sampled heights now clear a building's own tagged base. When the draw lands

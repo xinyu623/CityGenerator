@@ -50,8 +50,10 @@ def synthetic_terrain(monkeypatch):
         source=None,
         cancel_event=None,
         progress_cb=None,
+        core_bounds=None,
+        edge_taper_m=0.0,
     ):
-        del projector, settings, source, cancel_event
+        del projector, settings, source, cancel_event, core_bounds, edge_taper_m
         grid = make_ramp_grid(bounds, resolution_m)
         if progress_cb is not None:
             progress_cb(1, 1)

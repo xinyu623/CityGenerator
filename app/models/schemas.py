@@ -33,6 +33,9 @@ class TerrainOptions(BaseModel):
 
     enabled: bool = True
     resolution_m: float = Field(default=30.0, ge=5.0, le=50.0)
+    # Ring outside the selection where the DEM is ramped down to z = 0, so the
+    # solid's border does not present a tall wall to an incoming CFD flow.
+    edge_taper_m: float = Field(default=0.0, ge=0.0, le=1000.0)
 
 
 class GenerateOptions(BaseModel):

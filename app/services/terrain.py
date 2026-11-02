@@ -233,6 +233,34 @@ class TerrainGrid:
         return meta
 
 
+def edge_taper_factor(
+    x: np.ndarray | float,
+    y: np.ndarray | float,
+    core_bounds: tuple[float, float, float, float],
+    taper_m: float,
+) -> np.ndarray:
+    """Smooth 1 -> 0 weight outside ``core_bounds``, reaching 0 at ``taper_m``.
+
+    The terrain block's side faces are vertical walls whose height is the DEM
+    height on the frame border; inside a CFD domain that reads as a cliff at the
+    inlet. Multiplying the height field by this factor turns the ring outside the
+    selection into a ramp that meets ``z = 0`` at the frame, so the model sits
+    flush with the ground plane while the selected area keeps its true relief.
+    """
+
+    if taper_m <= 0.0:
+        return np.ones_like(np.asarray(x, dtype=float))
+    minx, miny, maxx, maxy = (float(value) for value in core_bounds)
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    # Euclidean distance to the rectangle: zero inside, growing outwards.
+    dx_out = np.maximum(np.maximum(minx - x_arr, x_arr - maxx), 0.0)
+    dy_out = np.maximum(np.maximum(miny - y_arr, y_arr - maxy), 0.0)
+    distance = np.hypot(dx_out, dy_out)
+    t = np.clip(distance / float(taper_m), 0.0, 1.0)
+    return 1.0 - t * t * (3.0 - 2.0 * t)
+
+
 # -- grid construction -------------------------------------------------
 
 
@@ -355,8 +383,20 @@ def build_terrain_grid(
     source: ElevationSource | None = None,
     cancel_event: threading.Event | None = None,
     progress_cb: ProgressCallback | None = None,
+    core_bounds: tuple[float, float, float, float] | None = None,
+    edge_taper_m: float = 0.0,
 ) -> TerrainGrid:
-    """Sample the DEM on a local grid and return a datum-shifted height field."""
+    """Sample the DEM on a local grid and return a datum-shifted height field.
+
+    ``bounds`` is the grid extent. When ``edge_taper_m`` is positive, heights
+    outside ``core_bounds`` fade towards the datum over that many metres, so the
+    block's border sits at ``z = 0`` instead of ending in a tall vertical wall.
+    The caller must grow ``bounds`` by ``edge_taper_m``; a tighter frame only
+    gets part-way down, because the weight is clamped at one band width.
+    """
+
+    if edge_taper_m > 0.0 and core_bounds is None:
+        raise GeometryError("地形边缘缓冲需要核心范围", "core_bounds is required when edge_taper_m > 0")
 
     nx, ny, dx, dy, effective = grid_spacing(
         bounds,
@@ -407,10 +447,18 @@ def build_terrain_grid(
 
     datum = float(heights.min())
     local = heights - datum
+    if edge_taper_m > 0.0:
+        xs = minx + dx * np.arange(nx)
+        ys = miny + dy * np.arange(ny)
+        grid_x, grid_y = np.meshgrid(xs, ys)
+        local = local * edge_taper_factor(grid_x, grid_y, core_bounds, float(edge_taper_m))
     meta = dict(data.meta)
     meta["nodata_filled_cells"] = filled
     meta["smoothing_m"] = round(kernel * float(dx), 1)
     meta["filter"] = f"median {kernel}x{kernel} cells"
+    if edge_taper_m > 0.0:
+        meta["edge_taper_m"] = round(float(edge_taper_m), 3)
+        meta["edge_taper_core_bounds"] = [round(float(value), 3) for value in core_bounds]
     grid = TerrainGrid(
         heights=local,
         x0=minx,
@@ -419,7 +467,7 @@ def build_terrain_grid(
         dy=dy,
         datum_offset_m=datum,
         elevation_min_m=datum,
-        elevation_max_m=float(heights.max()),
+        elevation_max_m=float(datum + local.max()),
         meta=meta,
     )
 

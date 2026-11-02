@@ -18,6 +18,7 @@ from app.services.terrain import (
     TerrainGrid,
     build_terrain_grid,
     build_terrain_solid,
+    edge_taper_factor,
     flat_grid,
     grid_spacing,
     smooth_heights,
@@ -420,5 +421,104 @@ def test_building_box_on_a_slope_stays_attached() -> None:
 def test_grid_spacing_rejects_empty_bounds(bounds) -> None:
     with pytest.raises(GeometryError):
         grid_spacing(bounds, 10.0)
+
+
+# -- edge taper -------------------------------------------------------
+
+
+def _taper_grid(tmp_path, *, taper: float, core=(0.0, 0.0, 400.0, 400.0)):
+    settings = Settings(data_dir=tmp_path)
+    projector = projector_for_bbox(*BBOX)
+    bounds = (-200.0, -200.0, 600.0, 600.0)
+    return build_terrain_grid(
+        bounds,
+        projector,
+        settings=settings,
+        resolution_m=25.0,
+        source=SyntheticSource(_ramp),
+        core_bounds=core,
+        edge_taper_m=taper,
+    )
+
+
+def test_edge_taper_factor_is_one_inside_and_zero_beyond_the_band() -> None:
+    core = (0.0, 0.0, 100.0, 100.0)
+    assert edge_taper_factor(50.0, 50.0, core, 40.0) == pytest.approx(1.0)
+    assert edge_taper_factor(0.0, 0.0, core, 40.0) == pytest.approx(1.0)
+    assert edge_taper_factor(140.0, 50.0, core, 40.0) == pytest.approx(0.0)
+    # The corner is measured diagonally, so it fades sooner than the flat sides.
+    assert 0.0 < float(edge_taper_factor(120.0, 120.0, core, 40.0)) < 0.5
+    assert edge_taper_factor(140.0, 140.0, core, 40.0) == pytest.approx(0.0)
+    # Halfway through the band the smoothstep sits at 0.5.
+    assert edge_taper_factor(120.0, 50.0, core, 40.0) == pytest.approx(0.5)
+
+
+def test_edge_taper_leaves_the_core_untouched(tmp_path) -> None:
+    plain = _taper_grid(tmp_path, taper=0.0)
+    tapered = _taper_grid(tmp_path, taper=200.0)
+
+    xs = plain.x0 + plain.dx * np.arange(plain.nx)
+    ys = plain.y0 + plain.dy * np.arange(plain.ny)
+    inside = (
+        (xs[None, :] >= 0.0) & (xs[None, :] <= 400.0) & (ys[:, None] >= 0.0) & (ys[:, None] <= 400.0)
+    )
+    assert inside.any()
+    assert np.allclose(tapered.heights[inside], plain.heights[inside])
+    assert tapered.heights.shape == plain.heights.shape
+
+
+def test_edge_taper_reaches_zero_on_the_outer_ring(tmp_path) -> None:
+    grid = _taper_grid(tmp_path, taper=200.0)
+    ring = np.concatenate(
+        [grid.heights[0, :], grid.heights[-1, :], grid.heights[:, 0], grid.heights[:, -1]]
+    )
+    assert np.allclose(ring, 0.0, atol=1e-6)
+
+
+def test_edge_taper_falls_monotonically_outwards(tmp_path) -> None:
+    grid = _taper_grid(tmp_path, taper=200.0)
+    column = grid.heights[:, grid.nx // 2]
+    ys = grid.y0 + grid.dy * np.arange(grid.ny)
+    band = ys >= 400.0
+    assert np.all(np.diff(column[band]) <= 1e-6)
+
+
+def test_edge_taper_requires_core_bounds(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path)
+    projector = projector_for_bbox(*BBOX)
+    with pytest.raises(GeometryError):
+        build_terrain_grid(
+            (0.0, 0.0, 400.0, 400.0),
+            projector,
+            settings=settings,
+            resolution_m=25.0,
+            source=SyntheticSource(_ramp),
+            edge_taper_m=100.0,
+        )
+
+
+def test_edge_taper_leaves_a_residue_when_the_frame_is_too_tight(tmp_path) -> None:
+    """A frame narrower than the band keeps a residue: the caller must grow it.
+
+    ``run_pipeline`` always grows the terrain bounds by ``edge_taper_m``, so this
+    only documents the clamp for direct callers.
+    """
+
+    settings = Settings(data_dir=tmp_path)
+    projector = projector_for_bbox(*BBOX)
+    grid = build_terrain_grid(
+        (-50.0, -50.0, 450.0, 450.0),
+        projector,
+        settings=settings,
+        resolution_m=25.0,
+        source=SyntheticSource(_ramp),
+        core_bounds=(0.0, 0.0, 400.0, 400.0),
+        edge_taper_m=200.0,
+    )
+    ring = np.concatenate(
+        [grid.heights[0, :], grid.heights[-1, :], grid.heights[:, 0], grid.heights[:, -1]]
+    )
+    assert 0.0 < float(ring.max()) < float(grid.heights.max())
+
 
 
