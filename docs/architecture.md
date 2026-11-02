@@ -38,7 +38,7 @@ static files are included in the Python package via `pyproject.toml`.
 | `app/services/overpass.py` | Overpass query, endpoint fallback, retries, throttle, cache. |
 | `app/services/osm_parse.py` | `osm2geojson` conversion, building filtering, relation handling. |
 | `app/services/projection.py` | UTM zone selection, `Projector`, local ↔ WGS84. |
-| `app/services/heights.py` | Parse `height`, `building:levels`, `min_height`, clamp. |
+| `app/services/heights.py` | Parse `height`, `building:levels`, `min_height`, clamp, and sample missing heights. |
 | `app/services/terrain.py` | DEM height grid, exact triangle sampling, footprint minima, closed terrain solid. |
 | `app/services/dem.py` | Terrarium tile fetch/decode/cache, zoom choice, mosaicking, reprojection. |
 | `app/services/issues.py` | Shared `Issue` (code/message/count) warning record. |
@@ -159,6 +159,17 @@ Priority:
 
 `min_height` raises the base. Heights are clamped to a safe range and produce
 `HEIGHT_CLAMPED`; missing heights produce `MISSING_HEIGHT`.
+
+Untagged buildings sample the selection's tagged heights (`HeightSampler` in
+`app/services/heights.py`). Candidates must lie within 0.5–2× the target
+footprint area (the nearest observations take over when the band is empty) and
+are weighted by a log-area Gaussian kernel plus a `building`-type factor: same
+type ×2, same type group ×1.5. `prepare_buildings` records the rule that produced
+each height (`similarity`, `type_cap`, `conservative_cap`), the pool's and the
+sample's ≥100 m/≥250 m counts, and the optional conservative bound
+(`height ≤ k·sqrt(area)`, `k = 8`, `CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE`).
+`python -m app.services.height_report --output <job>` reports the same numbers
+from a finished output directory.
 
 ### 5. Terrain (DEM)
 

@@ -4,11 +4,14 @@
 
 **Goal:** Replace the hard area band in the height sampler with type-and-area similarity weighting, add an opt-in conservative slenderness cap, and record which rule produced every sampled height.
 
-**Architecture:** `app/services/heights.py` owns the pool, the weights, the type ceilings, and the sampling decision; `prepare_buildings` only counts the rules and writes the metadata block. The conservative mode is a settings/CLI switch (`height <= k * sqrt(area)`, `k = 8`), off by default. `scripts/height_report.py` validates a finished job without rerunning the pipeline.
+**Architecture:** `app/services/heights.py` owns the pool, the weights, the type ceilings, and the sampling decision; `prepare_buildings` only counts the rules and writes the metadata block. The conservative mode is a settings/CLI switch (`height <= k * sqrt(area)`, `k = 8`), off by default. `app/services/height_report.py` validates a finished job without rerunning the pipeline.
 
 **Tech Stack:** Python 3.11, pytest, ruff, pydantic-settings, shapely, existing `app.services` modules.
 
 **Spec:** `docs/plans/2026-11-02-post-v2.1.1-handoff.md` task 1, with the approach picked after the 4×4 km pool analysis (option B: weighted similarity).
+
+**Status:** implemented on `main` (2026-11-02). The 4×4 rerun numbers are in the
+handoff's "Current 4×4 km reference numbers".
 
 ## Global Constraints
 
@@ -285,7 +288,7 @@ git commit -m "feat: expose conservative height sampling on the CLI"
 ### Task 4: 4×4 validation script
 
 **Files:**
-- Create: `scripts/height_report.py`
+- Create: `app/services/height_report.py` (invoked as `python -m app.services.height_report`)
 - Test: `tests/test_height_report.py`
 
 **Interfaces:**
@@ -322,7 +325,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add scripts/height_report.py tests/test_height_report.py
+git add app/services/height_report.py tests/test_height_report.py
 git commit -m "feat: add a height-tail validation report"
 ```
 
@@ -343,8 +346,8 @@ git commit -m "feat: add a height-tail validation report"
 - [ ] **Step 2: Compare and render**
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\height_report.py --output scratch\h3\output --check
-.\.venv\Scripts\python.exe scratch\render_city.py scratch\h3 --output scratch\h3\preview.png
+.\.venv\Scripts\python.exe -m app.services.height_report --output scratch\h3\output --check
+.\.venv\Scripts\python.exe scratch\render_city.py scratch\h3\output
 ```
 
 Record sampled ≥100 m / ≥250 m versus the pool, the rule counts, triangle and volume
@@ -357,7 +360,7 @@ deltas against `artifacts/height-fix-chongqing/output`, and look at the PNG next
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests -q
-.\.venv\Scripts\python.exe -m ruff check app tests scripts
+.\.venv\Scripts\python.exe -m ruff check app tests
 ```
 
 Expected: all offline tests pass, ruff clean.

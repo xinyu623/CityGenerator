@@ -72,7 +72,8 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 `--bbox` 顺序为 `south,west,north,east`；其余参数与请求选项一致：
 `--height`、`--level-height`、`--embed`、`--ground-margin`、`--simplify`、
 `--min-area`、`--terrain-resolution`、`--no-terrain`、`--refresh`、
-`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
+`--conservative-heights`、`--slenderness-k`、`--data-dir`（缓存根目录）、
+`--quiet`。输出与网页任务相同（`<out>/output/`
 下的 `city.stl` 等六个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
 
 ## 输出内容
@@ -84,7 +85,7 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 | `city.stl` | 二进制 STL。一个融合、闭合、法线朝外的城市实体：全部建筑 + 地形块（关闭地形时为 1 m 厚平整底座）。 |
 | `patches.json` | `city.stl` 三角形到 `ground` / `wall` / `bottom` 的连续区间，按 STL 顺序排列，用于 CFD 边界 patch 划分。 |
 | `metadata.json` | 模式版本、本地原点、CRS、参数、地形来源、统计、警告、数据来源和城市实体校验结果。 |
-| `buildings.geojson` | WGS84 建筑轮廓，含高度、地形地面高程、屋顶高程、来源和筛选后的标签。 |
+| `buildings.geojson` | WGS84 建筑轮廓，含高度、地形地面高程、屋顶高程、高度来源与采样规则（`height_rule`）以及筛选后的标签。 |
 | `README.txt` | 简短说明和 CFD 导入建议。 |
 | `result.zip` | 包含上述五个文件的压缩包（不包含自身）。 |
 
@@ -212,10 +213,14 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
    闭合边界。开启地形后地面不再平整，坡地上的建筑会被山体切掉一部分，这是
    预期的障碍物形状，但会增加近地面网格量。
 5. 检查 `MISSING_HEIGHT`、`HEIGHT_CLAMPED` 和 `STEEP_FOOTPRINT` 警告。缺少
-   高度标签的建筑会从本区域 OSM 已知高度中随机取值，并优先选择轮廓面积在
-   自身 `0.25–4` 倍范围内的样本（`buildings.height_sampling`）；车站、学校、
-   展馆、仓储等低层类型另有采样上限，天际线更贴近本地实际，但仍然是估计值，
-   不是实测高度。
+   高度标签的建筑会从本区域 OSM 已知高度中随机取值，候选样本限定在自身
+   `0.5–2` 倍轮廓面积范围内（带内没有样本时退化为最近的样本），并按面积相似度
+   和建筑类型加权（`buildings.height_sampling`）；车站、学校、展馆、仓储等
+   低层类型另有采样上限。每栋采样建筑在 `buildings.geojson → height_rule` 中
+   记录取值规则。加 `--conservative-heights` 可得到更平缓的天际线：采样高度
+   再受 `k·√面积`（`k = 8`）约束。可用
+   `python -m app.services.height_report --output <job> --check` 对比采样结果
+   与已知高度池的尾部占比。天际线贴近本地实际，但仍是估计值，不是实测高度。
 6. 如需了解是否有建筑轮廓发生接触修复，查看 `city.weld_repairs`；正常结果应为 `0`。
 7. 如果网格工具处理地形块较吃力，可关闭地形重跑，或把
    `terrain.resolution_m` 调粗；平整底座的三角形数少得多。
@@ -288,6 +293,8 @@ CITYGEN_HEIGHT_SAMPLING_ENABLED=true
 CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
 CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
 CITYGEN_HEIGHT_SAMPLING_SEED=0
+CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=false
+CITYGEN_HEIGHT_SAMPLING_SLENDERNESS_K=8.0
 CITYGEN_TERRAIN_ENABLED_DEFAULT=true
 CITYGEN_TERRAIN_RESOLUTION_M=25
 CITYGEN_MAX_TERRAIN_CELLS=80000
@@ -308,8 +315,9 @@ CITYGEN_DEM_MAX_RETRIES=3
   `source.overpass_cell_times` 记录每个分块的耗时。
 - 最大建筑数：`20,000`。
 - 默认高度：`25 m`（仅当本区域已知高度太少时使用；否则缺失高度从本地 OSM
-  高度分布中随机取值，优先选择轮廓面积在自身 `0.25–4` 倍范围内的样本，抖动
-  `10 %`）；层高：`3 m`。
+  高度分布中随机取值，候选限定在自身 `0.5–2` 倍轮廓面积内，并按面积与建筑类型
+  加权，抖动 `10 %`）；层高：`3 m`。可选的保守约束：`高度 ≤ 8·√面积`
+  （`height_sampling_conservative`）。
 - 底部下沉深度：`0.5 m`；轮廓简化：`0.05 m`。
 - 地面底座厚度：`1 m`。
 - 边界 patch：`patches.json` 的地面判定容差 `0.05 m`。

@@ -78,7 +78,8 @@ Without installing the console script:
 `--bbox` is `south,west,north,east`. Other flags mirror the request options:
 `--height`, `--level-height`, `--embed`, `--ground-margin`, `--simplify`,
 `--min-area`, `--terrain-resolution`, `--no-terrain`, `--refresh`,
-`--data-dir` (cache root), and `--quiet`. The CLI writes the same
+`--conservative-heights`, `--slenderness-k`, `--data-dir` (cache root), and
+`--quiet`. The CLI writes the same
 `city.stl`/`patches.json`/`metadata.json`/`buildings.geojson`/`README.txt`/
 `result.zip` bundle into `<out>/output/` and returns a non-zero exit code with
 the error code on failure, so it can be used from batch scripts.
@@ -92,7 +93,7 @@ A completed job contains:
 | `city.stl` | Binary STL. One fused, closed, outward-oriented city solid: buildings plus a terrain block (or a flat 1 m slab when terrain is off). |
 | `patches.json` | Contiguous triangle ranges of `city.stl` labelled `ground`, `wall`, or `bottom`, in STL order, for CFD patch assignment. |
 | `metadata.json` | Schema version, local origin, CRS, options, terrain provenance, statistics, warnings, source provenance, and city validation results. |
-| `buildings.geojson` | WGS84 footprints with height, terrain ground height, roof height, source, and selected tags. |
+| `buildings.geojson` | WGS84 footprints with height, terrain ground height, roof height, height source and sampling rule (`height_rule`), and selected tags. |
 | `README.txt` | Short human-readable notes and CFD import guidance. |
 | `result.zip` | ZIP containing the five files above (it does not contain itself). |
 
@@ -241,10 +242,14 @@ Useful `metadata.json → terrain` fields:
    hill, which is the intended obstacle shape but will add near-wall cells.
 5. Check `MISSING_HEIGHT`, `HEIGHT_CLAMPED`, and `STEEP_FOOTPRINT` warnings.
    Buildings without a height tag draw from the selection's own OSM height
-   distribution, preferring heights from similarly sized footprints
-   (0.25–4× the area; `buildings.height_sampling`), with a sampled ceiling for
-   low-rise/civic/industrial types, so the skyline is locally plausible but
-   still estimated, not surveyed.
+   distribution, from footprints within `0.5–2×` their area, weighted by area
+   similarity and building type (`buildings.height_sampling`), with a sampled
+   ceiling for low-rise/civic/industrial types. Each sampled building records the
+   rule in `buildings.geojson → height_rule`. Add `--conservative-heights` for a
+   calmer skyline: sampled heights are also capped at `k·√area` (`k = 8`). Run
+   `python -m app.services.height_report --output <job> --check` to compare the
+   sampled tail with the tagged pool. The skyline is locally plausible but still
+   estimated, not surveyed.
 6. Review `city.weld_repairs` if you need to know whether touching footprints
    required local contact repairs. A healthy run needs `0`.
 7. If your mesh generator struggles with the terrain block, re-run with terrain
@@ -330,6 +335,8 @@ CITYGEN_HEIGHT_SAMPLING_ENABLED=true
 CITYGEN_HEIGHT_SAMPLING_MIN_SAMPLES=5
 CITYGEN_HEIGHT_SAMPLING_JITTER=0.1
 CITYGEN_HEIGHT_SAMPLING_SEED=0
+CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=false
+CITYGEN_HEIGHT_SAMPLING_SLENDERNESS_K=8.0
 CITYGEN_TERRAIN_ENABLED_DEFAULT=true
 CITYGEN_TERRAIN_RESOLUTION_M=25
 CITYGEN_MAX_TERRAIN_CELLS=80000
@@ -349,9 +356,10 @@ Useful defaults:
   `0.25 km²`.
 - Maximum accepted buildings: `20,000`.
 - Default height: `25 m` for the rare selection that has too few tagged heights;
-  otherwise untagged buildings sample the local OSM height distribution,
-  preferring heights from footprints within `0.25–4×` their area
-  (`height_sampling_jitter = 10 %`). Level height: `3 m`.
+  otherwise untagged buildings sample the local OSM height distribution from
+  footprints within `0.5–2×` their area, weighted by area and building type
+  (`height_sampling_jitter = 10 %`). Level height: `3 m`. Optional conservative
+  bound: `height ≤ 8·√area` (`height_sampling_conservative`).
 - Bottom embed depth: `0.5 m`; polygon simplification: `0.05 m`.
 - Ground slab thickness: `1 m`.
 - Patches: `patches.json` ground tolerance `0.05 m`.

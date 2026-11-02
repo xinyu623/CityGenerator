@@ -96,16 +96,36 @@ For each footprint, height is resolved in this order:
 3. **Sampled.** If at least `height_sampling_min_samples` buildings in the
    selection carry a height or level tag, an untagged building draws from those
    observations with ±`height_sampling_jitter` (10 % by default) jitter and a
-   deterministic seed. Observations from buildings whose footprint area is
-   within 0.25–4× the target footprint are preferred; when none match, the
-   whole pool is used. Heights that the 2–300 m range had to clamp (for example
-   an OSM `height=350`) are not observations and are skipped. Low-rise, civic,
-   and industrial `building` types get a sampled ceiling (train station 60 m,
-   school 35 m, museum 45 m, retail 30 m, warehouse 25 m, house 15 m, …), because
-   the tagged pool over-represents towers. `metadata.json →
-   buildings.height_sampling` records the pool size, `area_weighted`,
-   `area_ratio`, `type_capped`, and how many buildings were sampled.
+   deterministic seed. The pool is conditioned on the target: only observations
+   whose footprint area is within 0.5–2× the target's are considered (the
+   nearest observations take over when that band is empty), and each candidate
+   is weighted by `exp(-0.5 × (ln(area / target_area) / 0.5)²)`, times 2 when
+   the `building` type matches and 1.5 when only the type group matches
+   (residential / commercial / civic / industrial / other). OSM height tags
+   over-represent towers, so the band keeps a 112 m² building from copying a
+   239 m tower while the weighting keeps a small shed from winning a draw for a
+   large footprint. Heights that the 2–300 m range had to clamp (for example an
+   OSM `height=350`) are not observations and are skipped. Low-rise, civic, and
+   industrial `building` types get a sampled ceiling (train station 60 m, school
+   35 m, museum 45 m, retail 30 m, warehouse 25 m, house 15 m, …). Every sampled
+   building records the rule that produced its height (`similarity`, `type_cap`,
+   or `conservative_cap`) as `height_rule` in `buildings.geojson`.
+   `metadata.json → buildings.height_sampling` records the pool size, the
+   weights, the rule counts, and how many sampled buildings and pool
+   observations are above 100 m and 250 m, by type group.
+
+   **Conservative mode.** `--conservative-heights`
+   (`CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=true`) also caps every sampled height
+   at `k × sqrt(footprint area)`, `k = 8` by default (`--slenderness-k`,
+   `CITYGEN_HEIGHT_SAMPLING_SLENDERNESS_K`). It never raises a height; it only
+   trims the slenderness tail for users who want a calmer skyline.
 4. **Default.** `default_height_m` (25 m) when too few tagged heights exist.
+
+To check a finished job, run
+`python -m app.services.height_report --output <job dir> [--check]`: it prints
+the sampled tail against the tagged pool, the rule counts, and the most slender
+samples, and `--check` fails when the sampled `>=250 m` share exceeds the pool's
+or a sampled height exceeds its type ceiling.
 
 `min_height` raises the base of the prism. If a height is outside the accepted
 range it is clamped and a `HEIGHT_CLAMPED` warning is emitted. A missing height

@@ -2,6 +2,33 @@
 
 All notable changes to CityGenerator are recorded here.
 
+## [Unreleased]
+
+- Height sampling v3: an untagged building now draws from observations whose own
+  footprint is within `0.5–2×` its area (the nearest observations take over when
+  that band is empty), weighted by a log-area kernel and by building type (same
+  `building` type ×2, same type group ×1.5) instead of a uniform draw inside the
+  old `0.25–4×` band. OSM tags over-represent towers, so this keeps a 112 m²
+  building from copying a 239 m tower. On the 4×4 km sample the sampled
+  buildings above 250 m fall from 21 to 17 and above 100 m from 73 to 69 against
+  a pool share of 2.6 % / 8.9 %; samples with height/√area > 10 fall from 12 to
+  1 and the worst ratio from 17.0 to 10.9. Every sampled building records the
+  rule that produced its height (`similarity`, `type_cap`, `conservative_cap`)
+  as `height_rule` in `buildings.geojson`, and
+  `metadata.json → buildings.height_sampling` gains the pool's and the sample's
+  ≥100 m/≥250 m counts by type group, the rule counts, `area_ratio`, and the
+  weighting parameters (`area_bandwidth_log`, `type_factors`); `area_ratio` is
+  now `[0.5, 2.0]`.
+- Optional conservative height mode: `--conservative-heights` /
+  `CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=true` caps sampled heights at
+  `k·√(footprint area)` (`--slenderness-k`, default `8`). It never raises a
+  height; on the 4×4 km sample it trims 7 more draws, leaving no sample above
+  ratio 8 and 15 above 250 m.
+- `python -m app.services.height_report --output <job> [--check]` prints the
+  sampled tail against the tagged pool, the rule counts, and the most slender
+  samples; `--check` fails when the sampled ≥250 m share exceeds the pool's or a
+  sampled height exceeds its type ceiling.
+
 ## [2.1.1] - 2026-11-02
 
 - Height sampling no longer copies censored or implausible observations.
