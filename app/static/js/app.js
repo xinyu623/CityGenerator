@@ -285,10 +285,12 @@ function renderResult(job) {
     "地形起伏",
     stats.terrain_enabled ? `${Number(stats.terrain_relief_m || 0).toFixed(1)} m` : "关闭"
   );
-  addStat(
-    "地面 / 墙面",
-    `${formatInt(patches.ground ?? 0)} / ${formatInt(patches.wall ?? 0)}`
-  );
+  if (stats.patch_counts) {
+    addStat(
+      "地面 / 墙面",
+      `${formatInt(patches.ground ?? 0)} / ${formatInt(patches.wall ?? 0)}`
+    );
+  }
   addStat("高度来源", `${formatInt(sources.tag)} / ${formatInt(sources.levels)} / ${formatInt(sources.default)}`);
   addStat("跳过", formatInt(stats.skipped));
   addStat("重叠", formatInt(stats.overlaps));
