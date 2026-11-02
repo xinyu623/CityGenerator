@@ -55,13 +55,30 @@ def summarize(
     """Tail statistics for the sampled buildings and their tagged pool."""
 
     sampling = ((metadata or {}).get("buildings") or {}).get("height_sampling") or {}
-    sampled: list[dict[str, Any]] = []
+
+    # One draw serves every part of a multi-polygon building, and it was drawn
+    # from the summed footprint area: aggregate by OSM id so the slenderness
+    # ratio is height / sqrt(total area), not height / sqrt(one part).
+    buildings: dict[tuple[str, int], dict[str, Any]] = {}
     for feature in features:
         properties = feature.get("properties") or {}
-        if properties.get("height_source") == "sampled":
-            sampled.append(properties)
+        if properties.get("height_source") != "sampled":
+            continue
+        key = (str(properties.get("osm_type") or ""), int(properties.get("osm_id") or 0))
+        entry = buildings.setdefault(
+            key,
+            {
+                "osm_id": key[1],
+                "height_m": float(properties.get("height_m") or 0.0),
+                "area_m2": 0.0,
+                "building": str((properties.get("tags") or {}).get("building") or ""),
+                "height_rule": str(properties.get("height_rule") or "unknown"),
+            },
+        )
+        entry["area_m2"] += float(properties.get("area_m2") or 0.0)
+    sampled = list(buildings.values())
 
-    heights = [float(properties.get("height_m") or 0.0) for properties in sampled]
+    heights = [float(entry.get("height_m") or 0.0) for entry in sampled]
     above_100 = sum(1 for height in heights if height >= 100.0)
     above_250 = sum(1 for height in heights if height >= 250.0)
 
@@ -73,12 +90,13 @@ def summarize(
     type_ceilings: list[dict[str, Any]] = []
     conservative_violations: list[dict[str, Any]] = []
 
-    for properties in sampled:
-        height = float(properties.get("height_m") or 0.0)
-        area = float(properties.get("area_m2") or 0.0)
-        building = str((properties.get("tags") or {}).get("building") or "")
+    for entry in sampled:
+        height = float(entry.get("height_m") or 0.0)
+        area = float(entry.get("area_m2") or 0.0)
+        building = str(entry.get("building") or "")
+        osm_id = entry.get("osm_id")
         group = building_type_group(building)
-        rules[str(properties.get("height_rule") or "unknown")] += 1
+        rules[str(entry.get("height_rule") or "unknown")] += 1
 
         bucket = groups.setdefault(
             group, {"count": 0, "heights": [], "above_100m": 0, "above_250m": 0}
@@ -94,7 +112,7 @@ def summarize(
             ratio = height / math.sqrt(area)
             slenderness.append(
                 {
-                    "osm_id": properties.get("osm_id"),
+                    "osm_id": osm_id,
                     "height_m": height,
                     "area_m2": area,
                     "ratio": ratio,
@@ -105,7 +123,7 @@ def summarize(
             if conservative and slenderness_k > 0.0 and height > bound + 1e-9:
                 conservative_violations.append(
                     {
-                        "osm_id": properties.get("osm_id"),
+                        "osm_id": osm_id,
                         "height_m": height,
                         "area_m2": area,
                         "bound_m": bound,
@@ -117,7 +135,7 @@ def summarize(
         if cap is not None and height > cap + 1e-9:
             type_ceilings.append(
                 {
-                    "osm_id": properties.get("osm_id"),
+                    "osm_id": osm_id,
                     "height_m": height,
                     "cap_m": cap,
                     "building": building,

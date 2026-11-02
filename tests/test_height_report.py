@@ -105,6 +105,18 @@ def test_height_report_flags_a_conservative_bound_violation():
     assert any("slenderness" in line for line in violations)
 
 
+def test_height_report_aggregates_multipart_buildings():
+    # One building drawn once from its total footprint area (2 x 100 m2 parts)
+    # must not look like a 50 m tower on a 100 m2 plot.
+    features = [_feature(7, 50.0, area_m2=100.0), _feature(7, 50.0, area_m2=100.0)]
+
+    summary = summarize(_metadata(), features)
+
+    assert summary["sampled"]["count"] == 1
+    assert summary["slenderness"][0]["area_m2"] == pytest.approx(200.0)
+    assert summary["slenderness"][0]["ratio"] == pytest.approx(50.0 / 200.0**0.5)
+
+
 def test_height_report_loads_a_job_directory(tmp_path: Path):
     output = tmp_path / "output"
     output.mkdir(parents=True)
