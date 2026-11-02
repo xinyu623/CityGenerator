@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from app.cli import main, parse_bbox
+from app.cli import _summary, main, parse_bbox
 from app.services.errors import OverpassError
 from app.services.overpass import OverpassResult
+from app.services.pipeline import PipelineResult
 
 FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures" / "overpass_tiny.json").read_text(encoding="utf-8")
@@ -90,3 +91,25 @@ def test_cli_reports_a_pipeline_error(tmp_path, monkeypatch, capsys):
 
     assert code == 1
     assert "Overpass 不可用" in capsys.readouterr().err
+
+
+def test_summary_prints_on_a_gbk_console(tmp_path, capsys):
+    # Windows consoles default to GBK, which has no "²"; a finished job must
+    # still print its summary there instead of crashing after the work is done.
+    result = PipelineResult(
+        stats={
+            "buildings": 3,
+            "triangles": 10,
+            "terrain_triangles": 0,
+            "city_watertight": True,
+            "weld_repairs": 0,
+            "area_km2": 1.0,
+            "terrain_enabled": False,
+        },
+        warnings=[],
+        files=[],
+        zip_path=tmp_path / "result.zip",
+        zip_name="result.zip",
+    )
+    _summary(result, tmp_path / "job")
+    capsys.readouterr().out.encode("gbk")

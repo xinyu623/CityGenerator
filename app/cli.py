@@ -82,7 +82,7 @@ def _summary(result: PipelineResult, job_dir: Path) -> None:
     print(f"triangles      {stats['triangles']} (terrain {stats['terrain_triangles']})")
     print(f"watertight     {stats['city_watertight']}")
     print(f"weld repairs   {stats['weld_repairs']}")
-    print(f"area           {stats['area_km2']} km²")
+    print(f"area           {stats['area_km2']} km2")
     if stats["terrain_enabled"]:
         print(f"terrain relief {stats['terrain_relief_m']} m @ {stats['terrain_resolution_m']} m")
     for warning in result.warnings:
