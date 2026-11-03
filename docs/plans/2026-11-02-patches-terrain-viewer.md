@@ -1,5 +1,10 @@
 # patches.json on steep terrain + viewer colours Implementation Plan
 
+> **Note (2026-11-03):** the `artifacts/` sample directories mentioned below were
+> deleted during cleanup. The `artifacts/...` paths are kept as a record of where
+> the numbers came from; the files themselves no longer exist, and every figure
+> quoted here is also in `CHANGELOG.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `patches.json` label ground only when a triangle really lies on the terrain (not just its centroid), and colour `ground`/`wall` in the Three.js preview from `patches.json`, including the patch counts in the result stats.
