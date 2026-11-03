@@ -634,6 +634,7 @@ def prepare_buildings(
     height_conservative: bool = False,
     height_slenderness_k: float = 8.0,
     max_height_m: float = 300.0,
+    min_height_m: float = 2.0,
     height_overrides: Mapping[str, float] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
@@ -708,6 +709,7 @@ def prepare_buildings(
             level_height_m=level_height_m,
             max_height_m=max_height_m,
             footprint_area_m2=math.fsum(polygon.area for polygon in polygons),
+            min_height_m=min_height_m,
         )
         if height.levels_ignored:
             counts["LEVELS_ONE_IGNORED"] += 1
@@ -732,6 +734,9 @@ def prepare_buildings(
                 if sampled_height < floor:
                     sampled_height = floor
                     height_rule = "base_floor"
+            if sampled_height < float(min_height_m):
+                sampled_height = float(min_height_m)
+                height_rule = "min_floor"
             rules[height_rule] += 1
             height = HeightInfo(
                 height_m=sampled_height,
@@ -795,7 +800,7 @@ def prepare_buildings(
         result.warnings.append(
             Issue(
                 code="HEIGHT_CLAMPED",
-                message=f"{counts['HEIGHT_CLAMPED']} 栋建筑高度超出允许范围，已截断",
+                message=f"{counts['HEIGHT_CLAMPED']} 栋建筑高度超出允许范围（低于下限或高于上限），已截断",
                 count=counts["HEIGHT_CLAMPED"],
             )
         )

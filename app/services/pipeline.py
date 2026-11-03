@@ -201,6 +201,7 @@ def run_pipeline(
             height_conservative=settings.height_sampling_conservative,
             height_slenderness_k=settings.height_sampling_slenderness_k,
             max_height_m=settings.max_height_m,
+            min_height_m=request.options.min_building_height_m,
             height_overrides=request.options.height_overrides,
             progress_cb=prepare_progress,
             cancel_event=cancel,

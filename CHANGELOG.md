@@ -9,6 +9,16 @@ All notable changes to CityGenerator are recorded here.
   added maintenance; `pytest`, `ruff`, and the 300 m golden test remain as local
   checks (the golden file keeps its producer-version record).
 
+## [2.3.3] - 2026-11-03
+
+- New `min_building_height_m` option (`--min-height`, default 2 m): a floor for
+  every resolved height, applied to tagged heights and to sampled ones (the
+  latter recorded as the `min_floor` sampling rule). The six-city set now runs
+  with 10 m so the obstacle field has no sub-building-scale slabs; Changsha,
+  whose pool is thin, becomes a 10 m plateau by construction rather than by
+  accident. `HEIGHT_CLAMPED` counts both ends of the range and its message says
+  so.
+
 ## [2.3.2] - 2026-11-03
 
 - A `building:levels=1` tag on a footprint larger than 300 m² is now treated as

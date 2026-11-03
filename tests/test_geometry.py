@@ -691,6 +691,21 @@ def test_one_storey_tag_on_a_large_footprint_is_sampled_and_kept_out_of_the_pool
     assert any(warning.code == "LEVELS_ONE_IGNORED" for warning in prepared.warnings)
 
 
+def test_sampled_heights_respect_the_minimum_floor():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes"}, 0.000),
+        _feature(2, {"building": "yes", "building:levels": "2"}, 0.004),
+    ]
+
+    prepared = prepare_buildings(
+        features, projector, min_height_samples=1, height_seed=3, min_height_m=10.0
+    )
+
+    assert all(item.height_m >= 10.0 for item in prepared.items)
+    assert any(rule == "min_floor" for rule in prepared.height_sampling["rules"])
+
+
 def test_height_sampling_metadata_has_one_shape_in_every_mode():
     # Sampling can run, be unavailable (too few tagged heights), or be switched
     # off. Consumers branch on ``enabled``/``reason``, never on which keys exist.

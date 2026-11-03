@@ -115,6 +115,21 @@ def test_sampling_never_copies_a_supertall_from_the_pool():
     assert max(sampler.draw(500.0).height_m for _ in range(50)) <= 300.0
 
 
+def test_minimum_height_floor_is_configurable():
+    default = resolve_height({"building": "yes", "building:levels": "1"}, footprint_area_m2=80.0)
+    assert default.height_m == pytest.approx(3.0)
+
+    floored = resolve_height(
+        {"building": "yes", "building:levels": "1"}, footprint_area_m2=80.0, min_height_m=10.0
+    )
+    assert floored.height_m == pytest.approx(10.0)
+    assert floored.clamped is True
+
+    untouched = resolve_height({"building": "yes", "height": "40"}, min_height_m=10.0)
+    assert untouched.height_m == pytest.approx(40.0)
+    assert untouched.clamped is False
+
+
 def test_one_storey_tag_on_a_large_footprint_is_treated_as_missing():
     # Beijing's bulk import wrote building:levels=1 on footprints it had no data
     # for; a 500 m2 "single storey" is a placeholder, not a survey.

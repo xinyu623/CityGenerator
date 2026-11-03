@@ -64,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
         help='JSON object mapping an OSM id to a height in metres, e.g. {"40778038": 468}',
     )
     parser.add_argument("--level-height", type=float, default=3.0, help="storey height, m")
+    parser.add_argument(
+        "--min-height",
+        type=float,
+        default=2.0,
+        help="floor for every building height, m; raise it for a coarser obstacle field",
+    )
     parser.add_argument("--embed", type=float, default=0.5, help="bottom embed depth, m")
     parser.add_argument("--ground-margin", type=float, default=0.0, help="base margin, m")
     parser.add_argument("--simplify", type=float, default=0.05, help="footprint simplification, m")
@@ -167,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             "ground_margin_m": args.ground_margin,
             "simplify_m": args.simplify,
             "min_building_area_m2": args.min_area,
+            "min_building_height_m": args.min_height,
             "height_overrides": height_overrides,
             "terrain": {
                 "enabled": not args.no_terrain,

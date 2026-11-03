@@ -38,6 +38,11 @@ MAX_HEIGHT_M = 300.0
 # Beijing's bulk import stamped it on every footprint it had no data for.
 LEVELS_ONE_MAX_AREA_M2 = 300.0
 
+# Absolute floor for a resolved height: a building thinner than this is not
+# an obstacle worth meshing. Runs that want a coarser field raise it through
+# ``min_building_height_m`` (the six-city set uses 10 m).
+MIN_HEIGHT_M = 2.0
+
 # ``building`` tag values, grouped so a sparse tag can borrow from its neighbours
 # instead of falling back to the whole pool.
 _TYPE_GROUPS: dict[str, str] = {
@@ -231,6 +236,7 @@ def resolve_height(
     level_height_m: float = 3.0,
     max_height_m: float = MAX_HEIGHT_M,
     footprint_area_m2: float | None = None,
+    min_height_m: float = MIN_HEIGHT_M,
 ) -> HeightInfo:
     """Resolve total height and base elevation from OSM tags.
 
@@ -276,8 +282,8 @@ def resolve_height(
     if height > max_height_m:
         height = float(max_height_m)
         clamped = True
-    if height < 2.0:
-        height = 2.0
+    if height < float(min_height_m):
+        height = float(min_height_m)
         clamped = True
     if not math.isfinite(base) or base < 0.0:
         base = 0.0
