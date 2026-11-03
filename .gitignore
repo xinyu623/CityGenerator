@@ -15,4 +15,8 @@ Thumbs.db
 artifacts/
 scratch/
 out/
+# The six-city STL dataset (models/city_cores, ~44 MB of binaries) stayed local:
+# it is reproducible with scratch/run_six.ps1 + scratch/build_city_cores.py, and
+# the exporter README documents its layout.
+models/
 .tmp-playwright/
