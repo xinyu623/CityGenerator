@@ -9,6 +9,24 @@ All notable changes to CityGenerator are recorded here.
   added maintenance; `pytest`, `ruff`, and the 300 m golden test remain as local
   checks (the golden file keeps its producer-version record).
 
+## [2.3.2] - 2026-11-03
+
+- A `building:levels=1` tag on a footprint larger than 300 m² is now treated as
+  missing instead of as a survey. Beijing's 2018 bulk import stamped exactly that
+  tag on 1 113 footprints in the Guomao box (1 113 of the 1 298 levels-sourced
+  buildings, median footprint 489 m², 62 of them within 600 m of the CITIC
+  Tower), every one of them carrying no tag besides `building` and
+  `building:levels`. They resolved to 3 m, and because the sampler's pool is
+  built from tagged heights, those three-metre observations were 84 % of the
+  pool and dragged the 1 622 untagged buildings down with them: 83 % of the
+  model sat below 6 m and the median height was 3.0 m. Such buildings now fall
+  through to sampling and are excluded from the pool, so Beijing's Guomao
+  selection reads as a CBD again. The same rule fires 273 times in Chongqing,
+  where it is needed: without the area guard, dropping every one-storey tag
+  there would have pushed the pool's median from 3 m to 63 m.
+- `resolve_height` takes `footprint_area_m2` and reports `levels_ignored`, and
+  `prepare_buildings` counts the cases as `LEVELS_ONE_IGNORED`.
+
 ## [2.3.1] - 2026-11-02
 
 - Fixed a floating building shell. A `min_height` building is extruded from its

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "CityGenerator"
-    version: str = "2.3.1"
+    version: str = "2.3.2"
 
     data_dir: Path = DEFAULT_DATA_DIR
     max_workers: int = 2

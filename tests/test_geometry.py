@@ -674,6 +674,23 @@ def test_sampled_heights_clear_a_min_height_base():
     assert not any(issue.code == "TRIANGULATION_FAILED" for issue in built.warnings)
 
 
+def test_one_storey_tag_on_a_large_footprint_is_sampled_and_kept_out_of_the_pool():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = [
+        _feature(1, {"building": "yes", "building:levels": "1"}, 0.000),
+        _feature(2, {"building": "yes", "building:levels": "9"}, 0.004),
+        _feature(3, {"building": "yes"}, 0.008),
+    ]
+
+    prepared = prepare_buildings(features, projector, min_height_samples=1, height_seed=3)
+
+    by_id = {item.osm_id: item for item in prepared.items}
+    assert by_id[1].height_source == "sampled"          # placeholder tag ignored
+    assert by_id[2].height_source == "levels" and by_id[2].height_m == pytest.approx(27.0)
+    assert prepared.height_sampling["known"] == 1       # the placeholder is not an observation
+    assert any(warning.code == "LEVELS_ONE_IGNORED" for warning in prepared.warnings)
+
+
 def test_height_sampling_metadata_has_one_shape_in_every_mode():
     # Sampling can run, be unavailable (too few tagged heights), or be switched
     # off. Consumers branch on ``enabled``/``reason``, never on which keys exist.

@@ -523,6 +523,7 @@ def _known_height_pairs(
             feature.tags,
             default_height_m=default_height_m,
             level_height_m=level_height_m,
+            footprint_area_m2=_footprint_area_m2(feature.geometry),
         )
         # A clamped height was censored by the accepted range (e.g. height=350
         # becomes 300): it is not an observation worth copying onto other
@@ -706,7 +707,10 @@ def prepare_buildings(
             default_height_m=default_height_m,
             level_height_m=level_height_m,
             max_height_m=max_height_m,
+            footprint_area_m2=math.fsum(polygon.area for polygon in polygons),
         )
+        if height.levels_ignored:
+            counts["LEVELS_ONE_IGNORED"] += 1
         override = _override_height(height_overrides, feature)
         if override is not None:
             height = HeightInfo(
@@ -793,6 +797,17 @@ def prepare_buildings(
                 code="HEIGHT_CLAMPED",
                 message=f"{counts['HEIGHT_CLAMPED']} 栋建筑高度超出允许范围，已截断",
                 count=counts["HEIGHT_CLAMPED"],
+            )
+        )
+    if counts["LEVELS_ONE_IGNORED"]:
+        result.warnings.append(
+            Issue(
+                code="LEVELS_ONE_IGNORED",
+                message=(
+                    f"{counts['LEVELS_ONE_IGNORED']} 栋建筑的 building:levels=1 与轮廓面积"
+                    "不符（>300 m2），已按缺失高度处理并重新抽样"
+                ),
+                count=counts["LEVELS_ONE_IGNORED"],
             )
         )
     floating = _ground_unsupported_bases(result)

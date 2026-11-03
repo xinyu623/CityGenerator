@@ -34,6 +34,10 @@ AREA_RATIO_MAX = 2.0
 # because a guess should not invent a landmark.
 MAX_HEIGHT_M = 300.0
 
+# A ``building:levels=1`` tag on a footprint larger than this is not a survey:
+# Beijing's bulk import stamped it on every footprint it had no data for.
+LEVELS_ONE_MAX_AREA_M2 = 300.0
+
 # ``building`` tag values, grouped so a sparse tag can borrow from its neighbours
 # instead of falling back to the whole pool.
 _TYPE_GROUPS: dict[str, str] = {
@@ -216,6 +220,9 @@ class HeightInfo:
     base_m: float
     source: str
     clamped: bool = False
+    # A ``building:levels=1`` tag on a large footprint was ignored as a bulk
+    # import placeholder and fell through to the default/sampling path.
+    levels_ignored: bool = False
 
 
 def resolve_height(
@@ -223,27 +230,42 @@ def resolve_height(
     default_height_m: float = 25.0,
     level_height_m: float = 3.0,
     max_height_m: float = MAX_HEIGHT_M,
+    footprint_area_m2: float | None = None,
 ) -> HeightInfo:
     """Resolve total height and base elevation from OSM tags.
 
     Priority: explicit ``height`` > ``building:levels`` (+ ``roof:height``) >
     configured default. ``min_height`` / ``building:min_level`` set the base.
+
+    A single-storey tag on a footprint larger than ``LEVELS_ONE_MAX_AREA_M2`` is
+    treated as missing rather than as a survey: Beijing's 2018 building import
+    stamped ``building:levels=1`` on 1 113 footprints in the Guomao box, half of
+    them 500 m² or more, which would otherwise flatten the CBD and poison the
+    sampling pool with three-metre observations.
     """
 
     clamped = False
+    levels_ignored = False
     tag_height = parse_length_m(tags.get("height"))
     if tag_height is not None:
         height = tag_height
         source = "tag"
     else:
         levels = parse_levels(tags.get("building:levels"))
-        if levels is not None:
+        implausible_one_storey = (
+            levels is not None
+            and levels <= 1.0
+            and footprint_area_m2 is not None
+            and float(footprint_area_m2) > LEVELS_ONE_MAX_AREA_M2
+        )
+        if levels is not None and not implausible_one_storey:
             roof = parse_length_m(tags.get("roof:height")) or 0.0
             height = levels * level_height_m + roof
             source = "levels"
         else:
             height = float(default_height_m)
             source = "default"
+            levels_ignored = implausible_one_storey
 
     base = parse_length_m(tags.get("min_height")) or 0.0
     if base == 0.0:
@@ -265,7 +287,13 @@ def resolve_height(
     if base > height - 0.5:
         base = max(0.0, height - 0.5)
 
-    return HeightInfo(height_m=height, base_m=base, source=source, clamped=clamped)
+    return HeightInfo(
+        height_m=height,
+        base_m=base,
+        source=source,
+        clamped=clamped,
+        levels_ignored=levels_ignored,
+    )
 
 
 @dataclass(frozen=True)
