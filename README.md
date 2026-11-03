@@ -86,7 +86,7 @@ Without installing the console script:
 `--height`, `--max-height`, `--height-overrides`, `--level-height`, `--embed`,
 `--ground-margin`, `--simplify`, `--min-area`, `--terrain-resolution`,
 `--terrain-edge-taper`, `--no-terrain`, `--refresh`, `--conservative-heights`,
-`--slenderness-k`, `--no-proxy`, `--data-dir` (cache root), and
+`--slenderness-k`, `--no-proxy`, `--origin-zero`, `--data-dir` (cache root), and
 `--quiet`. The CLI writes the same
 `city.stl`/`patches.json`/`metadata.json`/`buildings.geojson`/`README.txt`/
 `result.zip` bundle into `<out>/output/` and returns a non-zero exit code with
@@ -200,7 +200,12 @@ Set `terrain.enabled` to `false` for the flat v1 behaviour.
 - Units: metres.
 - `+X` = east, `+Y` = north, `+Z` = up (the STL is Z-up).
 - Origin: south-west corner of the selected WGS84 bounding box, projected to the
-  appropriate UTM zone (`EPSG:326xx` north / `EPSG:327xx` south).
+  appropriate UTM zone (`EPSG:326xx` north / `EPSG:327xx` south). Footprints that
+  spill past that corner keep a negative X/Y. With `--origin-zero` (or
+  `CITYGEN_ORIGIN_AT_MIN_XY=true`) the finished solid is translated so its
+  minimum X and Y are exactly 0 — the frame a solver that drops the obstacle at
+  the domain corner expects. `metadata.json → local_frame.origin_mode` records
+  which one produced the file (`bbox_sw` or `min_xy`).
 - `z = 0` is the lowest terrain cell in the selection (the ground plane when
   terrain is disabled). Models therefore start at `-ground_slab_thickness_m`.
 - `metadata.json → local_frame.origin` records the origin's easting, northing,
@@ -357,6 +362,7 @@ CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
 CITYGEN_OVERPASS_SPLIT_MAX_DEPTH=2
 CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2=0.25
 CITYGEN_USE_SYSTEM_PROXY=true
+CITYGEN_ORIGIN_AT_MIN_XY=false
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0

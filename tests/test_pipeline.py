@@ -470,3 +470,50 @@ def test_pipeline_reports_no_buildings(tmp_path, monkeypatch):
             progress_cb=lambda *_: None,
             cancel_event=threading.Event(),
         )
+
+
+def test_origin_zero_puts_the_solid_corner_at_the_origin(tmp_path, monkeypatch):
+    # Move one footprint outside the bbox so the raw frame starts negative,
+    # which is exactly the case the flag exists for.
+    raw = json.loads(json.dumps(RAW))
+    for element in raw["elements"]:
+        if element.get("type") == "node" and element.get("id") in (1, 2, 3, 4):
+            element["lon"] -= 0.0004
+            element["lat"] -= 0.0003
+    monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", fake_fetch_factory(raw))
+
+    options = GenerateOptions(terrain=TerrainOptions(enabled=False))
+
+    def build(name: str, **settings_kwargs):
+        job = tmp_path / name
+        job.mkdir()
+        run_pipeline(
+            GenerateRequest(bbox=BBOX, options=options),
+            Settings(data_dir=tmp_path, max_area_km2=4.0, **settings_kwargs),
+            job,
+        )
+        return job
+
+    def corner(job: Path) -> tuple[float, float]:
+        mesh = load_stl_bytes((job / "output" / "city.stl").read_bytes())
+        vertices = mesh.vertices
+        return float(vertices[:, 0].min()), float(vertices[:, 1].min())
+
+    raw_job = build("raw")
+    shifted_job = build("shifted", origin_at_min_xy=True)
+
+    raw_x, raw_y = corner(raw_job)
+    assert raw_x < -20.0 and raw_y < -20.0
+
+    shifted_x, shifted_y = corner(shifted_job)
+    assert shifted_x == pytest.approx(0.0, abs=1e-3)
+    assert shifted_y == pytest.approx(0.0, abs=1e-3)
+
+    metadata = json.loads((shifted_job / "output" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["local_frame"]["origin_mode"] == "min_xy"
+    assert metadata["ground"]["bounds_local"][0] == pytest.approx(0.0, abs=1e-3)
+    assert metadata["ground"]["bounds_local"][1] == pytest.approx(0.0, abs=1e-3)
+    # Translation must not change size or triangle count.
+    assert (shifted_job / "output" / "city.stl").stat().st_size == (
+        raw_job / "output" / "city.stl"
+    ).stat().st_size

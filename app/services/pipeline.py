@@ -5,21 +5,24 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from pyproj import Geod
 
 from app.config import Settings
 from app.models.schemas import FileInfo, GenerateRequest, WarningItem
 from app.services.buildings import (
     BuildCancelled,
+    BuildResult,
     detect_overlaps,
     extrude_prepared,
     prepare_buildings,
+    shift_prepared,
 )
-from app.services.city import fuse_city
+from app.services.city import FusedCity, fuse_city
 from app.services.errors import (
     AreaTooLargeError,
     JobCancelled,
@@ -102,6 +105,64 @@ def _noop_progress(percent: int, stage: str, message: str) -> None:
 
 def _terrain_percent(done: int, total: int) -> int:
     return 36 + int(4 * done / max(total, 1))
+
+
+def _union_bounds(
+    first: tuple[float, float, float, float] | None,
+    second: tuple[float, float, float, float] | None,
+) -> tuple[float, float, float, float] | None:
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return (
+        min(first[0], second[0]),
+        min(first[1], second[1]),
+        max(first[2], second[2]),
+        max(first[3], second[3]),
+    )
+
+
+def _normalize_xy_origin(
+    city: FusedCity,
+    build_result: BuildResult,
+    projector: Projector,
+) -> FusedCity:
+    """Drop the finished solid's minimum X and Y onto exactly 0.
+
+    The pipeline already shifts the bbox frame before the ground/terrain steps,
+    but a padding that is only applied at extrusion time (the contact overlap
+    that grows touching footprints) can make the fused solid stick out a few
+    centimetres past the predicted bounds. This final rigid translation removes
+    that residue, so the exported STL starts at 0 in both axes.
+    """
+
+    vertices = np.asarray(city.mesh.vertices, dtype=float)
+    dx = float(vertices[:, 0].min())
+    dy = float(vertices[:, 1].min())
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return city
+
+    offset = np.array([-dx, -dy, 0.0])
+    mesh = city.mesh.copy()
+    mesh.vertices = mesh.vertices + offset
+    base_mesh = None
+    if city.base_mesh is not None:
+        base_mesh = city.base_mesh.copy()
+        base_mesh.vertices = base_mesh.vertices + offset
+    for built in build_result.meshes:
+        built.vertices = built.vertices + offset
+
+    minx, miny, maxx, maxy = city.base_bounds
+    projector.set_origin(projector.origin_easting + dx, projector.origin_northing + dy)
+    return replace(
+        city,
+        mesh=mesh,
+        base_bounds=(minx - dx, miny - dy, maxx - dx, maxy - dy),
+        base_mesh=base_mesh,
+        stl_bytes=None,
+        stl_mesh=None,
+    )
 
 
 def run_pipeline(
@@ -224,6 +285,29 @@ def run_pipeline(
         combined_bounds[3] + margin,
     )
 
+    if settings.origin_at_min_xy:
+        # Put the solid's south-west corner at (0, 0). Footprints outside the
+        # bbox (and a terrain taper) are what make the raw frame start negative;
+        # shifting before the terrain/ground step keeps every downstream stage -
+        # and the recorded origin - in the same frame.
+        taper = (
+            float(request.options.terrain.edge_taper_m)
+            if request.options.terrain.enabled
+            else 0.0
+        )
+        shift_x = base_bounds[0] - taper
+        shift_y = base_bounds[1] - taper
+        shift_prepared(prepared, -shift_x, -shift_y)
+        projector.set_origin(
+            projector.origin_easting + shift_x, projector.origin_northing + shift_y
+        )
+        base_bounds = (
+            base_bounds[0] - shift_x,
+            base_bounds[1] - shift_y,
+            base_bounds[2] - shift_x,
+            base_bounds[3] - shift_y,
+        )
+
     terrain: TerrainGrid | None = None
     if request.options.terrain.enabled:
         progress(35, "terrain", "获取地形高程数据")
@@ -317,6 +401,8 @@ def run_pipeline(
         base_thickness_m=settings.ground_slab_thickness_m,
         check_input_volumes=False,
     )
+    if settings.origin_at_min_xy:
+        city = _normalize_xy_origin(city, build_result, projector)
     mark("fuse")
 
     check_cancel()

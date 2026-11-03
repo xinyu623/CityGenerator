@@ -72,6 +72,7 @@ def _build_metadata(
             "z": "up",
             "unit": "m",
             "z_reference": z_reference,
+            "origin_mode": "min_xy" if settings.origin_at_min_xy else "bbox_sw",
             "origin": {
                 "easting": round(projector.origin_easting, 3),
                 "northing": round(projector.origin_northing, 3),

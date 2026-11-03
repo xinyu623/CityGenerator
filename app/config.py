@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     simplify_m: float = 0.05
     min_building_area_m2: float = 4.0
     ground_slab_thickness_m: float = 1.0
+    # Local origin for the exported solid. False: the south-west corner of the
+    # selected bbox (geometry that spills past it keeps negative X/Y). True:
+    # translate the whole city so the solid's minimum X and Y are 0, which is
+    # what a solver that expects the obstacle to start at the domain corner
+    # wants. `--origin-zero` sets it per run.
+    origin_at_min_xy: bool = False
     # patches.json marks an upward triangle as ground when its centroid and all
     # three vertices are this close to the terrain surface and its normal agrees
     # with the terrain normal (dot >= the second value); everything upward and

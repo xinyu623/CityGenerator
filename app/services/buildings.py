@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import trimesh
 from shapely import STRtree, make_valid
+from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
 from trimesh import grouping
@@ -232,6 +233,16 @@ class PreparedBuildings:
     height_sources: dict[str, int] = field(default_factory=dict)
     height_sampling: dict[str, Any] = field(default_factory=dict)
     warnings: list[Issue] = field(default_factory=list)
+
+
+def shift_prepared(prepared: PreparedBuildings, dx: float, dy: float) -> None:
+    """Translate every prepared footprint (and the aggregate bounds) by (dx, dy)."""
+
+    for item in prepared.items:
+        item.polygon_local = translate(item.polygon_local, xoff=dx, yoff=dy)
+    if prepared.bounds is not None:
+        minx, miny, maxx, maxy = prepared.bounds
+        prepared.bounds = (minx + dx, miny + dy, maxx + dx, maxy + dy)
 
 
 @dataclass

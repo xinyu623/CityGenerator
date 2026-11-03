@@ -78,7 +78,7 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 `--height`、`--max-height`、`--height-overrides`、`--level-height`、`--embed`、
 `--ground-margin`、`--simplify`、`--min-area`、`--terrain-resolution`、
 `--terrain-edge-taper`、`--no-terrain`、`--refresh`、`--conservative-heights`、
-`--slenderness-k`、`--no-proxy`、`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
+`--slenderness-k`、`--no-proxy`、`--origin-zero`、`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
 下的 `city.stl` 等六个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
 
 ## 输出内容
@@ -167,7 +167,11 @@ SRTM/GMTED 派生，无需 API key。这份数据是约 30 m 的**地表模型**
 - 单位：米。
 - `+X` = 东，`+Y` = 北，`+Z` = 上（STL 为 Z-up）。
 - 原点：所选 WGS84 包围盒的西南角，投影到合适的 UTM 带
-  （北半球 `EPSG:326xx`，南半球 `EPSG:327xx`）。
+  （北半球 `EPSG:326xx`，南半球 `EPSG:327xx`）。超出该角的建筑轮廓会让 X/Y 出现
+  负值。加 `--origin-zero`（或 `CITYGEN_ORIGIN_AT_MIN_XY=true`）时，导出前会把整个
+  实体平移，使最小 X、Y 正好为 0——把障碍物直接摆在计算域角上的求解器要的就是这个。
+  `metadata.json → local_frame.origin_mode` 记录本文件用的是哪种原点
+  （`bbox_sw` 或 `min_xy`）。
 - `z = 0` 是所选范围内最低的地形格点（关闭地形时为地面平面），因此模型底部
   从 `-ground_slab_thickness_m` 开始。
 - `metadata.json → local_frame.origin` 记录原点的东坐标、北坐标、经度和
@@ -303,6 +307,7 @@ CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
 CITYGEN_OVERPASS_SPLIT_MAX_DEPTH=2
 CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2=0.25
 CITYGEN_USE_SYSTEM_PROXY=true
+CITYGEN_ORIGIN_AT_MIN_XY=false
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0

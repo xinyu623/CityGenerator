@@ -103,6 +103,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="k for --conservative-heights (default: 8.0)",
     )
     parser.add_argument("--refresh", action="store_true", help="ignore the Overpass cache")
+    parser.add_argument(
+        "--origin-zero",
+        action="store_true",
+        help=(
+            "translate the solid so its minimum X and Y are 0 instead of using the "
+            "bbox south-west corner as the local origin"
+        ),
+    )
     proxy = parser.add_mutually_exclusive_group()
     proxy.add_argument(
         "--proxy",
@@ -170,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["use_system_proxy"] = True
     elif args.no_proxy:
         overrides["use_system_proxy"] = False
+    if args.origin_zero:
+        overrides["origin_at_min_xy"] = True
     settings = Settings(**overrides)  # type: ignore[arg-type]
     height_overrides: dict[str, float] = {}
     if args.height_overrides is not None:

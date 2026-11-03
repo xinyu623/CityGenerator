@@ -4,6 +4,16 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- `origin_at_min_xy` (`CITYGEN_ORIGIN_AT_MIN_XY`, default `false`) and
+  `--origin-zero`: translate the finished solid so its minimum X and Y are
+  exactly 0. The local frame's origin was the bbox south-west corner, so any
+  footprint spilling past it left the model at a negative coordinate; a
+  downstream solver that drops the obstacle at the domain corner had to
+  re-derive an offset. The pipeline shifts before the ground/terrain steps and
+  removes the residual of the extrusion-time contact padding after the union,
+  so the exported `city.stl` starts at 0 in both axes. `metadata.json →
+  local_frame.origin_mode` records `bbox_sw` or `min_xy`, and the recorded
+  origin moves to the model corner. The six-city set is regenerated with it.
 - `use_system_proxy` (`CITYGEN_USE_SYSTEM_PROXY`, default `true`) and the CLI
   flags `--proxy` / `--no-proxy`: Overpass and DEM requests now pass the setting
   to httpx `trust_env`. On this machine the registry proxy at `127.0.0.1:7897`
