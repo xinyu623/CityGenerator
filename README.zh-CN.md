@@ -78,7 +78,7 @@ citygen --bbox 29.560551,106.58197,29.569449,106.592431 --out .\out\chaotianmen
 `--height`、`--max-height`、`--height-overrides`、`--level-height`、`--embed`、
 `--ground-margin`、`--simplify`、`--min-area`、`--terrain-resolution`、
 `--terrain-edge-taper`、`--no-terrain`、`--refresh`、`--conservative-heights`、
-`--slenderness-k`、`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
+`--slenderness-k`、`--no-proxy`、`--data-dir`（缓存根目录）、`--quiet`。输出与网页任务相同（`<out>/output/`
 下的 `city.stl` 等六个文件）；失败时返回非零退出码并打印错误码，方便批处理调用。
 
 ## 输出内容
@@ -302,6 +302,7 @@ CITYGEN_OVERPASS_TIMEOUT_S=180
 CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
 CITYGEN_OVERPASS_SPLIT_MAX_DEPTH=2
 CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2=0.25
+CITYGEN_USE_SYSTEM_PROXY=true
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
@@ -344,6 +345,9 @@ CITYGEN_DEM_MAX_RETRIES=3
   DEM 缩放级别 `10–14`。
 - 任务保留 / Overpass 与 DEM 缓存保留：`7 天`。
 - 工作线程：`2`。
+- 代理：Overpass 与 DEM 请求默认走系统代理（`use_system_proxy = true`，即 httpx
+  的 `trust_env`）。某些本地代理会把这类 POST 转发成 `502` 并让客户端卡住数分钟；
+  在 `.env` 里设 `CITYGEN_USE_SYSTEM_PROXY=false`，或加 `--no-proxy`，即可直连。
 
 缓存和任务位于 `data/cache/osm/`、`data/cache/dem/` 与
 `data/jobs/<job_id>/`，均已被 git 忽略。

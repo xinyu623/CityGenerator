@@ -109,6 +109,7 @@ class TerrariumSource:
         self._client = client or httpx.Client(
             timeout=httpx.Timeout(settings.dem_timeout_s),
             follow_redirects=True,
+            trust_env=settings.use_system_proxy,
         )
         self._sleep = sleep
 

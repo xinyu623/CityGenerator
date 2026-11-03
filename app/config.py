@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     overpass_split_max_depth: int = 2
     overpass_split_min_area_km2: float = 0.25
     overpass_user_agent: str = "CityGenerator/0.1 (local research tool)"
+    # httpx trust_env: route Overpass and DEM requests through the proxy the
+    # environment (or, on Windows, the registry) advertises. A local proxy that
+    # forwards these POSTs badly answers 502 and can stall the client for
+    # minutes; `--no-proxy` / CITYGEN_USE_SYSTEM_PROXY=false talks to the
+    # endpoints directly instead.
+    use_system_proxy: bool = True
 
     # Retention.
     job_ttl_days: int = 7

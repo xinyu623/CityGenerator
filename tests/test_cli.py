@@ -354,3 +354,77 @@ def test_summary_prints_on_a_gbk_console(tmp_path, capsys):
     )
     _summary(result, tmp_path / "job")
     capsys.readouterr().out.encode("gbk")
+
+
+def test_cli_parser_accepts_the_proxy_flags():
+    args = build_parser().parse_args(["--bbox", "1,2,3,4", "--out", "x", "--no-proxy"])
+    assert args.no_proxy is True
+    assert args.proxy is False
+
+    forced = build_parser().parse_args(["--bbox", "1,2,3,4", "--out", "x", "--proxy"])
+    assert forced.proxy is True
+    assert forced.no_proxy is False
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--bbox", "1,2,3,4", "--out", "x", "--proxy", "--no-proxy"]
+        )
+
+
+def _settings_spy(monkeypatch):
+    from app.config import Settings
+
+    captured: dict[str, object] = {}
+    real = Settings
+
+    class Spy(real):
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("app.cli.Settings", Spy)
+    return captured
+
+
+def test_cli_no_proxy_disables_the_system_proxy(tmp_path, monkeypatch):
+    monkeypatch.setenv("CITYGEN_USE_SYSTEM_PROXY", "true")
+    monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", _fake_fetch(FIXTURE))
+    captured = _settings_spy(monkeypatch)
+
+    code = main(
+        [
+            "--bbox",
+            BBOX,
+            "--out",
+            str(tmp_path / "job"),
+            "--no-terrain",
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--no-proxy",
+        ]
+    )
+
+    assert code == 0
+    assert captured["use_system_proxy"] is False
+
+
+def test_cli_proxy_flag_overrides_an_environment_opt_out(tmp_path, monkeypatch):
+    monkeypatch.setenv("CITYGEN_USE_SYSTEM_PROXY", "false")
+    monkeypatch.setattr("app.services.pipeline.OverpassClient.fetch", _fake_fetch(FIXTURE))
+    captured = _settings_spy(monkeypatch)
+
+    code = main(
+        [
+            "--bbox",
+            BBOX,
+            "--out",
+            str(tmp_path / "job"),
+            "--no-terrain",
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--proxy",
+        ]
+    )
+
+    assert code == 0
+    assert captured["use_system_proxy"] is True

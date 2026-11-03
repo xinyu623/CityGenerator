@@ -4,6 +4,17 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- `use_system_proxy` (`CITYGEN_USE_SYSTEM_PROXY`, default `true`) and the CLI
+  flags `--proxy` / `--no-proxy`: Overpass and DEM requests now pass the setting
+  to httpx `trust_env`. On this machine the registry proxy at `127.0.0.1:7897`
+  answers the Overpass POST with `502` and can leave the client busy-spinning for
+  minutes; `--no-proxy` (or the `.env` opt-out) talks to the endpoints directly,
+  which is what produced the six-city Guangzhou rebuild.
+- The six-city Guangzhou selection moved 665 m south (`23.095966,113.305465,
+  23.132034,113.344535`): the old north edge enclosed Shipai village, 841
+  handshake buildings on 50 m² footprints that made one 15 ha patch hold 36 % of
+  the model's buildings. 2 366 → 1 653 buildings, 100 m grid peak 111 → 14,
+  volume −1.4 %. `models/city_cores` and its previews were regenerated.
 - Removed the GitHub Actions workflow. The project is developed and used on a
   single Windows machine, so hosted CI covered no second environment and only
   added maintenance; `pytest`, `ruff`, and the 300 m golden test remain as local

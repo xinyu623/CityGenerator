@@ -86,7 +86,7 @@ Without installing the console script:
 `--height`, `--max-height`, `--height-overrides`, `--level-height`, `--embed`,
 `--ground-margin`, `--simplify`, `--min-area`, `--terrain-resolution`,
 `--terrain-edge-taper`, `--no-terrain`, `--refresh`, `--conservative-heights`,
-`--slenderness-k`, `--data-dir` (cache root), and
+`--slenderness-k`, `--no-proxy`, `--data-dir` (cache root), and
 `--quiet`. The CLI writes the same
 `city.stl`/`patches.json`/`metadata.json`/`buildings.geojson`/`README.txt`/
 `result.zip` bundle into `<out>/output/` and returns a non-zero exit code with
@@ -356,6 +356,7 @@ CITYGEN_OVERPASS_TIMEOUT_S=180
 CITYGEN_OVERPASS_MIN_INTERVAL_S=1.0
 CITYGEN_OVERPASS_SPLIT_MAX_DEPTH=2
 CITYGEN_OVERPASS_SPLIT_MIN_AREA_KM2=0.25
+CITYGEN_USE_SYSTEM_PROXY=true
 CITYGEN_JOB_TTL_DAYS=7
 CITYGEN_CACHE_TTL_DAYS=7
 CITYGEN_GROUND_SLAB_THICKNESS_M=1.0
@@ -398,6 +399,11 @@ Useful defaults:
   DEM zoom `10–14`.
 - Job retention / Overpass and DEM cache retention: `7 days`.
 - Worker threads: `2`.
+- Proxy: Overpass and DEM requests honour the system proxy
+  (`use_system_proxy = true`, httpx `trust_env`). A local proxy that intercepts
+  these POSTs can answer `502` and leave the client stalled for minutes; set
+  `CITYGEN_USE_SYSTEM_PROXY=false` in `.env` or pass `--no-proxy` to connect
+  directly.
 
 Cache and jobs live under `data/cache/osm/`, `data/cache/dem/`, and
 `data/jobs/<job_id>/`. All are ignored by git.

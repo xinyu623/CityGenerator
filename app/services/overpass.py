@@ -160,6 +160,7 @@ class OverpassClient:
         self._client = client or httpx.Client(
             timeout=httpx.Timeout(settings.overpass_timeout_s),
             follow_redirects=True,
+            trust_env=settings.use_system_proxy,
         )
         self._sleep = sleep
         self._throttle_lock = threading.Lock()

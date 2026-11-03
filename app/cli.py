@@ -103,6 +103,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="k for --conservative-heights (default: 8.0)",
     )
     parser.add_argument("--refresh", action="store_true", help="ignore the Overpass cache")
+    proxy = parser.add_mutually_exclusive_group()
+    proxy.add_argument(
+        "--proxy",
+        action="store_true",
+        help="route Overpass/DEM requests through the system proxy (the default)",
+    )
+    proxy.add_argument(
+        "--no-proxy",
+        action="store_true",
+        help=(
+            "ignore the system/registry proxy and talk to the endpoints directly; "
+            "use it when a local proxy answers these POSTs with 502 or stalls"
+        ),
+    )
     parser.add_argument("--data-dir", type=Path, default=None, help="cache/job root (default: ./data)")
     parser.add_argument("--quiet", action="store_true", help="only print the final summary")
     return parser
@@ -152,6 +166,10 @@ def main(argv: list[str] | None = None) -> int:
         overrides["height_sampling_conservative"] = False
     if args.slenderness_k is not None:
         overrides["height_sampling_slenderness_k"] = args.slenderness_k
+    if args.proxy:
+        overrides["use_system_proxy"] = True
+    elif args.no_proxy:
+        overrides["use_system_proxy"] = False
     settings = Settings(**overrides)  # type: ignore[arg-type]
     height_overrides: dict[str, float] = {}
     if args.height_overrides is not None:

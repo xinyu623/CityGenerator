@@ -492,3 +492,21 @@ def test_split_of_an_elongated_cell_stays_four_cells_above_the_minimum(tmp_path)
     children = [entry for entry in result.meta["cell_times"] if entry["depth"] == 1]
     assert len(children) == 4
     assert all(area_km2(BBox(**entry["bbox"])) >= 0.25 * 0.999 for entry in children)
+
+
+def test_client_follows_the_system_proxy_setting(tmp_path, monkeypatch):
+    kwargs_seen: dict[str, object] = {}
+    real_client = httpx.Client
+
+    def spy(*args, **kwargs):
+        kwargs_seen.update(kwargs)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", spy)
+
+    OverpassClient(make_settings(tmp_path, use_system_proxy=False)).close()
+    assert kwargs_seen["trust_env"] is False
+
+    kwargs_seen.clear()
+    OverpassClient(make_settings(tmp_path, use_system_proxy=True)).close()
+    assert kwargs_seen["trust_env"] is True

@@ -248,3 +248,17 @@ def test_mercator_latitude_is_clamped() -> None:
     assert math.isfinite(float(y[0]))
     assert 0.0 <= float(y[0]) <= 8.0
     assert math.isfinite(float(x[0]))
+
+
+def test_source_follows_the_system_proxy_setting(tmp_path, monkeypatch) -> None:
+    kwargs_seen: dict[str, object] = {}
+    real_client = httpx.Client
+
+    def spy(*args, **kwargs):
+        kwargs_seen.update(kwargs)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", spy)
+
+    TerrariumSource(make_settings(tmp_path, use_system_proxy=False)).close()
+    assert kwargs_seen["trust_env"] is False
