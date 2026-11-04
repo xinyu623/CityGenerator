@@ -4,6 +4,36 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- The city-core dataset grew from six to nine: `models/city_cores` now also
+  holds 4 × 4 km cores for New York (Midtown), Los Angeles (Downtown) and London
+  (City + South Bank), generated with the same pipeline and parameters as the
+  Chinese six except two values: `--simplify 0.2` (these sources carry decimetre
+  tracing noise; 0.05 m kept it and cost 9-27 % more triangles) and
+  `--max-height 600` (Central Park Tower is 472 m, the Shard 310). The 20 000
+  building guard is still enough — London is the largest at 15 607.
+  Result: 51 421 buildings, 1 793 006 triangles, 90 MB of STL; all watertight,
+  zero non-manifold edges, `origin_mode = min_xy`, patches cover every triangle.
+  London is the heavy one (0.5 M triangles) because a European core is 2-3x
+  denser than a Chinese one; its skyline is also far more dependent on sampled
+  heights (61 % untagged). Box choices and the trade-offs are in
+  `docs/plans/2026-11-04-three-global-city-core-stl.md`.
+- `render_previews.py`: the overview titles were hard-coded to "Six city cores"
+  and `grid_page` assumed two rows, so a nine-city dataset would have drawn off
+  the page. Rows now follow the panel count, the title counts the layouts, and a
+  third overview (`overview_skyline.png`) looks along the 0-660 m height ramp
+  from 6 degrees: at the 32-degree oblique a 472 m tower is 11 % of the plate
+  width and reads as a slightly taller block, which made the supertalls look
+  missing.
+- `render_previews.py` also drew the flat cities wrong at close range. The
+  boolean union retriangulates the 1 m ground slab into ~84 000 triangles whose
+  centroids sit all along the view axis, so a plain painter's-algorithm sort
+  interleaves them with the walls and paints slab over the towers standing on
+  it: a 335 m tower close-up came out as a truncated slab, and its top was
+  invisible. `ground`/`bottom` patches now draw first for a flat city (exact,
+  since nothing is below the ground plane) and keep the plain order for a
+  terrain block, where a hill has to hide what is behind it. The `city_cores`
+  previews were regenerated; `scratch/landmark_view.py` renders a close-up with
+  the same shader.
 - `origin_at_min_xy` (`CITYGEN_ORIGIN_AT_MIN_XY`, default `false`) and
   `--origin-zero`: translate the finished solid so its minimum X and Y are
   exactly 0. The local frame's origin was the bbox south-west corner, so any

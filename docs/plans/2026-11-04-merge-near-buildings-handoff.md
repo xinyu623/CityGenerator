@@ -17,10 +17,7 @@
 - 产物来源：`out\six-city\<city>`（中国 6 城）、`out\global-four\<city>`（纽约、洛杉矶、伦敦）。
 - 组装脚本：`scratch/build_city_cores.py`（已经被扩成 9 城，内部有 SIX / FOUR 两个根目录常量）。
 - 预览：`models/city_cores/render_previews.py`（Warm Graphite 配色；含 `save_png()` 重试）。
-- 目录里另有 `overview_skyline.png`，是另一个会话追加的视图，不是本次改动范围。
-
-**注意：另一个会话正在同一个工作区里工作**（它生成的是国外四城和这两份计划文档）。
-不要 `git add -A` 一把梭，只提交自己改的文件；提交前先 `git status` 看一眼。
+- 目录里另有 `overview_skyline.png`（6° 仰角的天际线视图），不是本次改动范围。
 
 ## 当前口径（9 份实际在用）
 
@@ -80,14 +77,14 @@ if grow > 0.0:
 再加一条 CLI 传参测试，照抄 `tests/test_cli.py` 里
 `test_cli_parser_accepts_a_raised_height_ceiling` / `test_cli_passes_the_edge_taper_to_the_request`。
 
-## 重跑（10 份）
+## 重跑（9 份）
 
 六份中国城市的参数（共用）：
 `--height 25 --level-height 3 --min-height 10 --embed 0.5 --simplify 0.05 --min-area 4 --max-height 700 --merge-gap 2 --ground-margin 50 --quiet`
 
 三份国外城市（共用）：
-`--height 25 --level-height 3 --min-height 10 --embed 0.5 --simplify 0.2 --min-area 4 --max-height 600 --merge-gap 2 --ground-margin 50 --origin-zero --no-proxy --quiet`，
-并先设 `$env:CITYGEN_MAX_BUILDINGS = '30000'`。
+`--height 25 --level-height 3 --min-height 10 --embed 0.5 --simplify 0.2 --min-area 4 --max-height 600 --merge-gap 2 --ground-margin 50 --origin-zero --no-proxy --quiet`。
+伦敦 15 607 栋，默认 `CITYGEN_MAX_BUILDINGS=20000` 够用，不必再调。
 
 | 城市 | bbox（south,west,north,east） | 输出目录 | simplify | 最高楼 (m) | 额外参数 |
 | --- | --- | --- | ---: | ---: | --- |
@@ -111,7 +108,7 @@ $env:CITY_CORES_DIR = 'models/city_cores'
 
 OSM / DEM 已缓存，9 份全跑大致 2-3 分钟（伦敦的网格较重建模稍慢）。
 
-## 基准数字（改动前，v2.3.3 + 国外四城）
+## 基准数字（改动前，v2.3.3 + 国外三城）
 
 | 城市 | 建筑 | 三角形 | 最高 | 底面 |
 | --- | ---: | ---: | ---: | --- |
@@ -137,7 +134,7 @@ OSM / DEM 已缓存，9 份全跑大致 2-3 分钟（伦敦的网格较重建模
 
 1. `docs/plans/2026-11-02-six-city-core-stl.md`：参数表加 `merge_gap_m`、`ground_margin_m` 两行，
    结果表更新底面尺寸与三角形数。
-2. `docs/plans/2026-11-04-four-global-city-core-stl.md`：同上（这份是另一个会话写的，改之前先看它的现状）。
+2. `docs/plans/2026-11-04-three-global-city-core-stl.md`：同上（国外三城的取舍与参数）。
 3. `models/city_cores/README.md`：表格里的三角形数、底面，以及"合并/缓冲"约定。
 4. `CHANGELOG.md` + `app/config.py` 的 `version`（建议 `2.4.0`，因为新增公开参数）。
 
