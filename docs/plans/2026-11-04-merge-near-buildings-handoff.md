@@ -92,6 +92,22 @@ $env:CITY_CORES_DIR = 'models/city_cores'
 
 依赖 `.venv` 里的 numpy / Pillow；不需要 matplotlib。
 
+## 另一项要一起改的：四周 50 m 缓冲
+
+用户要求六份模型四周各留 50 m 空地。**不需要改代码**，`--ground-margin` 已经是现成参数
+（`GenerateOptions.ground_margin_m`，0–500 m）：它把底面（平板或地形块的 base_bounds）
+向外扩这个距离，建筑不动。
+
+- 六城的参数从 `--ground-margin 0` 改成 `--ground-margin 50`。
+- 实测（北京，`--no-terrain`）：底面 4223.7 × 4366.5 m → **4323.7 × 4466.5 m**，三角形数基本不变
+  （67 168 → 67 162），也就是外圈只是一块空地。
+- 意义：现在边缘建筑会直接顶到模型边界、模型最外一圈就是楼体墙面；加 50 m 后边界一定是平地，
+  CFD 进口/出口不会撞在半栋楼上。
+- 重庆会叠加：`base_bounds` 先 +50 m，地形网格再按 `--terrain-edge-taper 250` 向外扩 250 m，
+  所以重庆的底面是「框 ∪ 建筑 + 50 m 平地 + 250 m 坡道」，比现在再大 100 m。
+- 文档里 `footprint_km` 这类数字会跟着变，`models/city_cores/layout_parameters.json` 由
+  `scratch/build_city_cores.py` 自动重算，不用手改。
+
 ## 当前六城的基准数字（v2.3.3，改动前）
 
 | 城市 | 建筑 | 三角形 | 最高 | 底面 |
