@@ -1,10 +1,10 @@
-# 交接：近邻楼体合并 + 四周 50 m 缓冲（10 城）
+# 交接：近邻楼体合并 + 四周 50 m 缓冲（9 城）
 
 **状态**：待实现。这份文档给新窗口的 agent 用，不需要读之前的对话。
 
 ## 任务
 
-两条改动，一起生效，覆盖 `models/city_cores` 里的**全部 10 份**（中国 6 城 + 国外 4 城）：
+两条改动，一起生效，覆盖 `models/city_cores` 里的**全部 9 份**（中国 6 城 + 国外 3 城）：
 
 1. **近邻合并**：间距 <= 2 m 的楼体在并集时融成一整块（不删楼，各自屋顶高度保留，
    所以是"带台阶的整块"）。需要改代码，新增 `merge_gap_m`。
@@ -13,26 +13,26 @@
 
 ## 数据集现状
 
-- 清单：`models/city_cores/layout_parameters.json`，10 条 `layouts`。
-- 产物来源：`out\six-city\<city>`（中国 6 城）、`out\global-four\<city>`（纽约、洛杉矶、伦敦、巴黎）。
-- 组装脚本：`scratch/build_city_cores.py`（已经被扩成 10 城，内部有 SIX / FOUR 两个根目录常量）。
+- 清单：`models/city_cores/layout_parameters.json`，9 条 `layouts`。
+- 产物来源：`out\six-city\<city>`（中国 6 城）、`out\global-four\<city>`（纽约、洛杉矶、伦敦）。
+- 组装脚本：`scratch/build_city_cores.py`（已经被扩成 9 城，内部有 SIX / FOUR 两个根目录常量）。
 - 预览：`models/city_cores/render_previews.py`（Warm Graphite 配色；含 `save_png()` 重试）。
 - 目录里另有 `overview_skyline.png`，是另一个会话追加的视图，不是本次改动范围。
 
 **注意：另一个会话正在同一个工作区里工作**（它生成的是国外四城和这两份计划文档）。
 不要 `git add -A` 一把梭，只提交自己改的文件；提交前先 `git status` 看一眼。
 
-## 当前口径（10 份实际在用）
+## 当前口径（9 份实际在用）
 
-| 项 | 中国 6 城 | 国外 4 城 |
+| 项 | 中国 6 城 | 国外 3 城 |
 | --- | --- | --- |
 | 轮廓简化 `--simplify` | 0.05 | 0.2 |
 | 高度上限 `--max-height` | 700（上海中心 632） | 600（中央公园塔 472） |
 | 高度下限 `--min-height` | 10 | 10 |
 | 地形 | 仅重庆开（30 m + 250 m 缓冲坡道） | 全关 |
-| 其他 | 上海/广州用 `--height-overrides` | `--origin-zero --no-proxy`；`CITYGEN_MAX_BUILDINGS=30000`（巴黎 20 224 栋，默认 20 000 会拦下） |
+| 其他 | 上海/广州用 `--height-overrides` | `--origin-zero --no-proxy`；建筑数最大的是伦敦 15 607，默认 20 000 上限够用 |
 
-本次两条改动对 10 份一律生效：`--merge-gap 2`、`--ground-margin 50`。
+本次两条改动对 9 份一律生效：`--merge-gap 2`、`--ground-margin 50`。
 
 ## 加 `merge_gap_m`：改哪里
 
@@ -85,7 +85,7 @@ if grow > 0.0:
 六份中国城市的参数（共用）：
 `--height 25 --level-height 3 --min-height 10 --embed 0.5 --simplify 0.05 --min-area 4 --max-height 700 --merge-gap 2 --ground-margin 50 --quiet`
 
-四份国外城市（共用）：
+三份国外城市（共用）：
 `--height 25 --level-height 3 --min-height 10 --embed 0.5 --simplify 0.2 --min-area 4 --max-height 600 --merge-gap 2 --ground-margin 50 --origin-zero --no-proxy --quiet`，
 并先设 `$env:CITYGEN_MAX_BUILDINGS = '30000'`。
 
@@ -100,7 +100,6 @@ if grow > 0.0:
 | new_york | 40.734966,-74.013717,40.771034,-73.966283 | out\global-four\new_york | 0.2 | 472 | `--no-terrain --origin-zero --no-proxy` |
 | los_angeles | 34.029966,-118.274683,34.066034,-118.231317 | out\global-four\los_angeles | 0.2 | 335 | `--no-terrain --origin-zero --no-proxy` |
 | london | 51.494966,-0.117869,51.531034,-0.060131 | out\global-four\london | 0.2 | 310 | `--no-terrain --origin-zero --no-proxy` |
-| paris | 48.847466,2.294189,48.883534,2.348811 | out\global-four\paris | 0.2 | 330 | `--no-terrain --origin-zero --no-proxy` |
 
 跑完重建数据集并重绘：
 
@@ -110,7 +109,7 @@ $env:CITY_CORES_DIR = 'models/city_cores'
 .\.venv\Scripts\python.exe models\city_cores\render_previews.py
 ```
 
-OSM / DEM 已缓存，10 份全跑大致 2-3 分钟（巴黎、伦敦的网格较重建模稍慢）。
+OSM / DEM 已缓存，9 份全跑大致 2-3 分钟（伦敦的网格较重建模稍慢）。
 
 ## 基准数字（改动前，v2.3.3 + 国外四城）
 
@@ -125,7 +124,6 @@ OSM / DEM 已缓存，10 份全跑大致 2-3 分钟（巴黎、伦敦的网格�
 | new_york | 11,245 | 352,872 | 472.0 | 4.14 x 4.20 km |
 | los_angeles | 6,570 | 317,948 | 335.3 | 4.30 x 4.44 km |
 | london | 15,607 | 512,198 | 310.0 | 4.26 x 4.30 km |
-| paris | 20,224 | 1,020,586 | 330.0 | 4.18 x 4.22 km |
 
 合并会让三角形数下降（相邻墙面被并集消掉），这是预期；但水密、单连通实体、非流形为 0 不能变。
 
