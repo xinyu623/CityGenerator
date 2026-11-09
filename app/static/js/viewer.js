@@ -131,7 +131,7 @@ async function createRuntime() {
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.82;
+  renderer.toneMappingExposure = 0.9;
   renderer.shadowMap.enabled = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.replaceChildren(renderer.domElement);
@@ -176,10 +176,10 @@ async function createRuntime() {
     // Three.js lights below still give a clean studio look without an HDRI.
   }
 
-  const hemisphere = new THREE.HemisphereLight(0xfffcf6, 0x6e675f, 0.42);
+  const hemisphere = new THREE.HemisphereLight(0xfffcf6, 0x9a9287, 0.78);
   scene.add(hemisphere);
 
-  const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.45);
+  const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.55);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(2048, 2048);
   keyLight.shadow.bias = -0.0004;
@@ -188,11 +188,11 @@ async function createRuntime() {
   scene.add(keyLight);
   scene.add(keyLight.target);
 
-  const fillLight = new THREE.DirectionalLight(0xb9c4cc, 0.3);
+  const fillLight = new THREE.DirectionalLight(0xb9c4cc, 0.4);
   fillLight.position.set(-1.6, 1.1, -1.1);
   scene.add(fillLight);
 
-  const rimLight = new THREE.DirectionalLight(0xffffff, 0.25);
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
   rimLight.position.set(0.2, 1.4, -1.8);
   scene.add(rimLight);
 
@@ -476,7 +476,7 @@ function cleanPreviewGeometry(state, geometry) {
 function applyRamp(state, geometry, minY, maxY) {
   const position = geometry.getAttribute("position");
   if (!position) return geometry;
-  const colors = rampColors(position.array, minY, maxY, 0.65);
+  const colors = rampColors(position.array, minY, maxY, 1.6);
   geometry.setAttribute("color", new state.THREE.Float32BufferAttribute(colors, 3));
   return geometry;
 }
