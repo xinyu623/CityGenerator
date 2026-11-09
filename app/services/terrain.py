@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import warnings
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -374,6 +375,77 @@ def smooth_heights(
     return _median_filter(heights, kernel)
 
 
+def _fill_enclosed_land(
+    heights: np.ndarray,
+    water_level: float,
+    *,
+    core_bounds: tuple[float, float, float, float] | None,
+    x0: float,
+    y0: float,
+    dx: float,
+    dy: float,
+) -> int:
+    """Lower land components that do not touch the core border.
+
+    With a flat water surface, a shoal or island is a land component surrounded
+    by water. The mainland always reaches the selection border, so a four-neighbour
+    flood fill from the core border separates the two. Returns the cell count.
+    """
+
+    ny, nx = heights.shape
+    land = heights > (water_level + 1e-6)
+    if not land.any():
+        return 0
+
+    if core_bounds is not None:
+        minx, miny, maxx, maxy = core_bounds
+        i0 = max(0, min(nx - 1, int(np.floor((minx - x0) / dx))))
+        i1 = max(0, min(nx - 1, int(np.ceil((maxx - x0) / dx))))
+        j0 = max(0, min(ny - 1, int(np.floor((miny - y0) / dy))))
+        j1 = max(0, min(ny - 1, int(np.ceil((maxy - y0) / dy))))
+    else:
+        i0, i1, j0, j1 = 0, nx - 1, 0, ny - 1
+
+    mainland = np.zeros_like(land, dtype=bool)
+    queue: deque[tuple[int, int]] = deque()
+
+    def seed(y: int, x: int) -> None:
+        if land[y, x] and not mainland[y, x]:
+            mainland[y, x] = True
+            queue.append((y, x))
+
+    for x in range(i0, i1 + 1):
+        seed(j0, x)
+        seed(j1, x)
+    for y in range(j0, j1 + 1):
+        seed(y, i0)
+        seed(y, i1)
+    if not queue:
+        # The selection border is entirely water; do not guess which blob is land.
+        return 0
+
+    while queue:
+        y, x = queue.popleft()
+        for dy_step, dx_step in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            yy, xx = y + dy_step, x + dx_step
+            if (
+                j0 <= yy <= j1
+                and i0 <= xx <= i1
+                and land[yy, xx]
+                and not mainland[yy, xx]
+            ):
+                mainland[yy, xx] = True
+                queue.append((yy, xx))
+
+    core = np.zeros_like(land, dtype=bool)
+    core[j0 : j1 + 1, i0 : i1 + 1] = True
+    islands = land & core & ~mainland
+    count = int(islands.sum())
+    if count:
+        heights[islands] = water_level
+    return count
+
+
 def build_terrain_grid(
     bounds: tuple[float, float, float, float],
     projector: Projector,
@@ -385,6 +457,9 @@ def build_terrain_grid(
     progress_cb: ProgressCallback | None = None,
     core_bounds: tuple[float, float, float, float] | None = None,
     edge_taper_m: float = 0.0,
+    water_level_m: float | None = None,
+    fill_water_islands: bool = False,
+    bank_clearance_m: float = 0.0,
 ) -> TerrainGrid:
     """Sample the DEM on a local grid and return a datum-shifted height field.
 
@@ -393,6 +468,15 @@ def build_terrain_grid(
     block's border sits at ``z = 0`` instead of ending in a tall vertical wall.
     The caller must grow ``bounds`` by ``edge_taper_m``; a tighter frame only
     gets part-way down, because the weight is clamped at one band width.
+
+    ``water_level_m`` is an absolute DEM elevation. Cells below it are raised to
+    it before the datum shift, which turns a river channel into a flat water
+    surface at ``z = 0`` (the same flat-plane convention the flat cities get from
+    their slab). ``None`` keeps the raw DEM channel. ``fill_water_islands`` also
+    lowers land components that are fully enclosed by that surface, so a shoal
+    does not sit as a gray bump in the river. ``bank_clearance_m`` clears every
+    cell below ``water_level_m + bank_clearance_m``, which also removes low banks
+    and peninsulas connected to the shore.
     """
 
     if edge_taper_m > 0.0 and core_bounds is None:
@@ -445,6 +529,32 @@ def build_terrain_grid(
     heights, _ = _fill_nodata(raw)
     heights = _median_filter(heights, kernel)[pad : pad + ny, pad : pad + nx]
 
+    water_filled = 0
+    if water_level_m is not None:
+        water_level = float(water_level_m)
+        water_filled = int((heights < water_level).sum())
+        heights = np.maximum(heights, water_level)
+
+    water_banks_cleared = 0
+    if water_level_m is not None and bank_clearance_m > 0.0:
+        ceiling = float(water_level_m) + float(bank_clearance_m)
+        bank_mask = heights < ceiling
+        water_banks_cleared = int(bank_mask.sum())
+        if water_banks_cleared:
+            heights[bank_mask] = float(water_level_m)
+
+    water_islands_filled = 0
+    if water_level_m is not None and fill_water_islands:
+        water_islands_filled = _fill_enclosed_land(
+            heights,
+            float(water_level_m),
+            core_bounds=core_bounds,
+            x0=minx,
+            y0=miny,
+            dx=dx,
+            dy=dy,
+        )
+
     datum = float(heights.min())
     local = heights - datum
     if edge_taper_m > 0.0:
@@ -459,6 +569,12 @@ def build_terrain_grid(
     if edge_taper_m > 0.0:
         meta["edge_taper_m"] = round(float(edge_taper_m), 3)
         meta["edge_taper_core_bounds"] = [round(float(value), 3) for value in core_bounds]
+    if water_level_m is not None:
+        meta["water_level_m"] = round(float(water_level_m), 3)
+        meta["water_filled_cells"] = water_filled
+        meta["water_bank_clearance_m"] = round(float(bank_clearance_m), 3)
+        meta["water_banks_cleared"] = water_banks_cleared
+        meta["water_islands_filled"] = water_islands_filled
     grid = TerrainGrid(
         heights=local,
         x0=minx,
@@ -472,6 +588,39 @@ def build_terrain_grid(
     )
 
     grid.warnings.extend(_terrain_warnings(grid, data.meta, filled, float(resolution_m), effective))
+    if water_level_m is not None and water_filled:
+        grid.warnings.append(
+            Issue(
+                code="TERRAIN_WATER_FILLED",
+                message=(
+                    f"{water_filled} 个地形网格点低于水面 {float(water_level_m):g} m，"
+                    "已抬到水面（河道按平地处理）"
+                ),
+                count=water_filled,
+            )
+        )
+    if water_banks_cleared:
+        grid.warnings.append(
+            Issue(
+                code="TERRAIN_WATER_BANKS_CLEARED",
+                message=(
+                    f"{water_banks_cleared} 个低于水面 +{float(bank_clearance_m):g} m 的"
+                    "岸坡格点已压到水面（低岸/半岛按平地处理）"
+                ),
+                count=water_banks_cleared,
+            )
+        )
+    if water_islands_filled:
+        grid.warnings.append(
+            Issue(
+                code="TERRAIN_WATER_ISLANDS_FILLED",
+                message=(
+                    f"{water_islands_filled} 个被水面包围的陆地块已压到水面"
+                    "（沙洲/小岛按平地处理）"
+                ),
+                count=water_islands_filled,
+            )
+        )
     return grid
 
 

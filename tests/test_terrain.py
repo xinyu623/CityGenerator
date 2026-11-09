@@ -16,6 +16,7 @@ from app.services.stl_export import (
 from app.services.terrain import (
     ElevationData,
     TerrainGrid,
+    _fill_enclosed_land,
     build_terrain_grid,
     build_terrain_solid,
     edge_taper_factor,
@@ -298,6 +299,48 @@ def test_build_terrain_grid_shifts_datum_to_zero(tmp_path) -> None:
     assert grid.elevation_min_m == pytest.approx(grid.datum_offset_m)
     assert grid.elevation_max_m - grid.elevation_min_m == pytest.approx(grid.relief_m, rel=1e-6)
     assert grid.describe()["grid"] == {"nx": grid.nx, "ny": grid.ny}
+
+
+def test_build_terrain_grid_fills_a_flat_water_surface(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path)
+    projector = projector_for_bbox(*BBOX)
+    grid = build_terrain_grid(
+        (0.0, 0.0, 600.0, 600.0),
+        projector,
+        settings=settings,
+        resolution_m=20.0,
+        source=SyntheticSource(_ramp),
+        water_level_m=80.0,
+        bank_clearance_m=5.0,
+    )
+
+    assert grid.datum_offset_m == pytest.approx(80.0)
+    assert grid.elevation_min_m == pytest.approx(80.0)
+    assert grid.heights.min() == pytest.approx(0.0, abs=1e-9)
+    assert grid.describe()["water_level_m"] == pytest.approx(80.0)
+    assert grid.describe()["water_filled_cells"] > 0
+    assert grid.describe()["water_banks_cleared"] > 0
+    codes = {issue.code for issue in grid.warnings}
+    assert "TERRAIN_WATER_FILLED" in codes
+    assert "TERRAIN_WATER_BANKS_CLEARED" in codes
+
+
+def test_fill_enclosed_land_removes_an_island_but_keeps_the_mainland() -> None:
+    heights = np.full((9, 9), 175.0)
+    heights[0, :] = 180.0
+    heights[4, 4] = 181.0
+    count = _fill_enclosed_land(
+        heights,
+        175.0,
+        core_bounds=(0.0, 0.0, 8.0, 8.0),
+        x0=0.0,
+        y0=0.0,
+        dx=1.0,
+        dy=1.0,
+    )
+    assert count == 1
+    assert heights[4, 4] == pytest.approx(175.0)
+    assert heights[0, 0] == pytest.approx(180.0)
 
 
 def test_build_terrain_grid_fills_missing_cells(tmp_path) -> None:

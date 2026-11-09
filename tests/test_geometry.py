@@ -402,6 +402,107 @@ def test_height_overrides_beat_sampling():
     assert capped_heights[3] == pytest.approx(300.0)
 
 
+def _cell_features(count: int, *, pitch_m: float = 20.0, size_m: float = 8.0) -> list[BuildingFeature]:
+    """``count`` small square buildings on a metre grid, all in one 100 m cell."""
+
+    metres_per_deg_lat = 110_900.0
+    metres_per_deg_lon = 111_320.0 * float(np.cos(np.radians(28.2)))
+    features: list[BuildingFeature] = []
+    for index in range(count):
+        west = 112.9000 + (index % 4) * pitch_m / metres_per_deg_lon
+        south = 28.2000 + (index // 4) * pitch_m / metres_per_deg_lat
+        dlon = size_m / metres_per_deg_lon
+        dlat = size_m / metres_per_deg_lat
+        features.append(
+            BuildingFeature(
+                osm_type="way",
+                osm_id=index + 1,
+                tags={"building": "yes", "height": "10"},
+                geometry=Polygon(
+                    [
+                        (west, south),
+                        (west + dlon, south),
+                        (west + dlon, south + dlat),
+                        (west, south + dlat),
+                    ]
+                ),
+            )
+        )
+    return features
+
+
+def test_density_cap_keeps_only_the_heaviest_buildings_in_a_crowded_cell():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = _cell_features(16)
+    # One tower on a modest footprint: mass ranking must keep it, not a shed.
+    features[7] = BuildingFeature(
+        osm_type="way",
+        osm_id=8,
+        tags={"building": "yes", "height": "120"},
+        geometry=features[7].geometry,
+    )
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        sample_missing_heights=False,
+        density_cell_m=100.0,
+        density_cell_max_buildings=4,
+    )
+
+    kept = {item.osm_id for item in prepared.items}
+    assert len(prepared.items) == 4
+    assert 8 in kept
+    assert prepared.thinned == 12
+    assert sum(prepared.height_sources.values()) == len(prepared.items)
+    warning = next(w for w in prepared.warnings if w.code == "DENSITY_THINNED")
+    assert warning.count == 12
+
+
+def test_density_cap_is_off_by_default_and_when_either_value_is_zero():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = _cell_features(16)
+
+    for kwargs in ({}, {"density_cell_m": 100.0}, {"density_cell_max_buildings": 4}):
+        prepared = prepare_buildings(features, projector, sample_missing_heights=False, **kwargs)
+        assert len(prepared.items) == 16
+        assert prepared.thinned == 0
+        assert not any(w.code == "DENSITY_THINNED" for w in prepared.warnings)
+
+
+def test_density_cap_leaves_cells_below_the_cap_alone():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = _cell_features(6)
+
+    prepared = prepare_buildings(
+        features,
+        projector,
+        sample_missing_heights=False,
+        density_cell_m=100.0,
+        density_cell_max_buildings=6,
+    )
+
+    assert len(prepared.items) == 6
+    assert prepared.thinned == 0
+
+
+def test_density_cap_picks_the_same_buildings_every_run():
+    projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
+    features = _cell_features(16)
+
+    def kept_ids() -> list[int]:
+        prepared = prepare_buildings(
+            features,
+            projector,
+            sample_missing_heights=False,
+            density_cell_m=100.0,
+            density_cell_max_buildings=5,
+        )
+        return [item.osm_id for item in prepared.items]
+
+    assert kept_ids() == kept_ids()
+
+
 def test_elevated_base_without_support_drops_to_the_ground():
     projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
     features = [_feature(1, {"building": "yes", "height": "40", "min_height": "18"}, 0.000)]

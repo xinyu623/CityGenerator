@@ -90,6 +90,9 @@ def _build_metadata(
             "triangle_count": sum(len(record.mesh.faces) for record in build_result.records),
             "height_sources": dict(build_result.height_sources),
             "skipped": build_result.skipped,
+            # Buildings the density cap dropped; they are neither errors nor
+            # skipped geometry, so they get their own counter.
+            "density_thinned": build_result.thinned,
             "min_height_m": round(min(heights), 3) if heights else 0.0,
             "max_height_m": round(max(heights), 3) if heights else 0.0,
             "footprint_area_m2": round(sum(record.area_m2 for record in build_result.records), 3),

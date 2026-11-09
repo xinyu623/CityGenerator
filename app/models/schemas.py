@@ -36,6 +36,17 @@ class TerrainOptions(BaseModel):
     # Ring outside the selection where the DEM is ramped down to z = 0, so the
     # solid's border does not present a tall wall to an incoming CFD flow.
     edge_taper_m: float = Field(default=0.0, ge=0.0, le=1000.0)
+    # Absolute DEM elevation (metres above sea level) of a flat water surface.
+    # Cells below it are raised to it, so a river valley becomes a flat plane
+    # instead of a carved channel; None leaves the DEM untouched.
+    water_level_m: float | None = Field(default=None, ge=-500.0, le=9000.0)
+    # Remove land components that are fully enclosed by the water surface (shoals
+    # and islands) instead of leaving them as gray bumps in the river.
+    water_fill_islands: bool = False
+    # Also lower every terrain cell below water_level + this clearance to the
+    # water surface. This clears low banks/peninsulas that would otherwise show
+    # as gray shoals in a flat river; it creates a small step at the new shoreline.
+    water_bank_clearance_m: float = Field(default=0.0, ge=0.0, le=50.0)
 
 
 class GenerateOptions(BaseModel):
@@ -47,6 +58,13 @@ class GenerateOptions(BaseModel):
     min_building_area_m2: float = Field(default=4.0, ge=1.0, le=1000.0)
     # Floor for every resolved height; raise it for a coarse obstacle field.
     min_building_height_m: float = Field(default=2.0, ge=1.0, le=50.0)
+    # Density cap: inside a `density_cell_m` square keep at most
+    # `density_cell_max_buildings` buildings, chosen by mass (area x height) so a
+    # tower always outlives a shed. This is the lever for districts the OSM data
+    # over-populates: 1 ha holding 60 huts is not worth 60 shells at 4 km.
+    # Either value at 0 disables the cap.
+    density_cell_m: float = Field(default=0.0, ge=0.0, le=1000.0)
+    density_cell_max_buildings: int = Field(default=0, ge=0, le=1000)
     # Explicit heights for individual OSM objects, keyed by "123" or "way/123" /
     # "relation/123". A landmark whose outline is mapped but whose height tag is
     # missing (the Oriental Pearl Tower) would otherwise be sampled like an

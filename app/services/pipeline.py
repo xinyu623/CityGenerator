@@ -264,6 +264,8 @@ def run_pipeline(
             max_height_m=settings.max_height_m,
             min_height_m=request.options.min_building_height_m,
             height_overrides=request.options.height_overrides,
+            density_cell_m=request.options.density_cell_m,
+            density_cell_max_buildings=request.options.density_cell_max_buildings,
             progress_cb=prepare_progress,
             cancel_event=cancel,
         )
@@ -334,6 +336,9 @@ def run_pipeline(
                 progress_cb=terrain_progress,
                 core_bounds=base_bounds,
                 edge_taper_m=taper,
+                water_level_m=request.options.terrain.water_level_m,
+                fill_water_islands=request.options.terrain.water_fill_islands,
+                bank_clearance_m=request.options.terrain.water_bank_clearance_m,
             )
         except BuildCancelled as exc:
             raise JobCancelled("任务已取消") from exc

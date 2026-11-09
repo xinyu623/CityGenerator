@@ -72,9 +72,11 @@ The result is a right-handed frame:
 - `+Z` up,
 - 1 unit = 1 metre.
 
-`z = 0` is the lowest terrain cell of the selection, or the flat ground plane
-when terrain is disabled. `metadata.json → terrain.datum_offset_m` converts back
-to absolute DEM elevations.
+`z = 0` is the lowest terrain cell of the selection, the flat water surface when
+`--terrain-water-level` is set (cells below that absolute DEM level are raised to
+it), or the flat ground plane when terrain is disabled. `metadata.json →
+terrain.datum_offset_m` converts back to absolute DEM elevations; the water-fill
+case also records `water_level_m` and `water_filled_cells`.
 
 The STL is written in this Z-up frame. The Three.js preview rotates it to Y-up
 only for display. `metadata.json` stores the origin's easting/northing and
@@ -113,8 +115,8 @@ For each footprint, height is resolved in this order:
    than that base: when the draw lands below `base + level_height_m`, the height
    is raised to that floor (one storey above the base) and records the
    `base_floor` rule. Every sampled building records the rule that produced its
-   height (`similarity`, `type_cap`, `width_cap`, `conservative_cap`, or `base_floor`) as
-   `height_rule` in `buildings.geojson`.
+   height (`similarity`, `type_cap`, `width_cap`, `conservative_cap`, or
+   `base_floor`) as `height_rule` in `buildings.geojson`.
    `metadata.json → buildings.height_sampling` records the pool size, the
    weights, the rule counts (`sampled`, `sampled_buildings`, `rules`), the
    band-fallback draws, and how many sampled buildings and pool observations are

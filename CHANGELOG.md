@@ -4,6 +4,95 @@ All notable changes to CityGenerator are recorded here.
 
 ## [Unreleased]
 
+- New `TerrainOptions.water_level_m` / `--terrain-water-level` (absolute DEM metres):
+  terrain cells below the level are raised to it before the datum shift, so a river
+  valley becomes a flat water plane at z = 0 instead of a carved channel. Chongqing
+  was regenerated with `--terrain-water-level 175` (the floodplain line) plus
+  `--terrain-water-bank-clearance 10`: relief 183.9 → 159.8 m, volume
+  1.343 → 0.946 B m³, triangles 117,372 → 117,522. The 175 m surface stays flat
+  and the 185 m contour is used as the shoreline, so low banks/peninsulas are
+  filled too. `--terrain-water-fill-islands` flattens enclosed shoals/islands;
+  `TERRAIN_WATER_FILLED`, `TERRAIN_WATER_BANKS_CLEARED` and
+  `TERRAIN_WATER_ISLANDS_FILLED` report the counts.
+- Added Tokyo (Toranomon–Azabudai) and San Francisco (Financial District / SoMa) to
+  `models/city_cores`, bringing the dataset to 12 cores. Tokyo is flat and turns on
+  `--conservative-heights` because 85.5 % of its buildings have no height tag and
+  the raw sampler invented 27 towers above 250 m (after the cap: 1). Tokyo Tower's
+  36 OSM `building=yes` / `building=roof` parts were overridden to 10 m: their
+  9–121 m² footprints and 40–332.6 m heights extruded as a cluster of needle
+  columns at one point. San Francisco is the second terrain model after Chongqing:
+  140.9 m relief, 30 m DEM, 250 m edge taper, 4.78 × 5.09 km footprint,
+  587 384 triangles. Both were built from BBBike PBF extracts because the public
+  Overpass endpoints timed out; the new `scratch/cache_city_from_pbf.py` writes
+  the same `buildings-v1` cache keys the pipeline reads.
+  `scratch/build_city_cores.py` now also assembles Hong Kong, so regenerating the
+  manifest no longer drops it. The preview grid is now 4 × 3 at a 1920 × 1280
+  plate (was 3 × 4 at 1440 × 960), with the seven domestic cores including Hong
+  Kong first and the five overseas cores after them. Audit: 12/12 watertight, one
+  connected solid, zero non-manifold edges.
+- New `density_cell_m` / `density_cell_max_buildings` options (`--density-cell` /
+  `--density-max`, both default `0` = off): a grid cell holding more than the cap
+  keeps only its heaviest buildings — mass `area × height`, ties broken by height,
+  area, then OSM id, so the choice is deterministic and a tower always outlives a
+  shed. The extras are **deleted**, not grown: the point is a lower obstacle
+  density in the districts the OSM data over-populates (Changsha's densest 100 m
+  cell holds 107 buildings, London's 66, Shenzhen's 57), and a fatter version of
+  the same crowd solves nothing. `result.bounds` is left alone, so the ground slab
+  still covers the whole selection and a thinned cell becomes flat ground instead
+  of a hole in the base. `DENSITY_THINNED` reports the count and
+  `metadata.json → buildings.density_thinned` records it.
+- The nine city cores were regenerated with `--density-cell 100 --density-max 8`
+  plus the 50 m rim (`--ground-margin 50`, v2.4.0): Beijing 8 removed, Shanghai
+  337, Guangzhou 23, Shenzhen 647, Changsha 1 648, Chongqing 61, New York 4 506,
+  Los Angeles 921, London 6 328. The set goes from 51 421 to 36 942 buildings, from
+  1 793 006 to 1 427 648 triangles (−20.4 %), 89.7 to 71.4 MB, with the same
+  watertight, single-solid, zero non-manifold-edge result. Only the over-dense cells
+  move: Beijing's densest cell holds ten buildings and loses eight, while London
+  and New York lose 40 %. What is dropped is small — Changsha loses 31 % of its
+  buildings but about 1 % of its building volume, Los Angeles 14 % because it is a
+  low-rise *big-block* city, not a small-building pile (its 10 m plateau comes from
+  `--min-height`, which the cap does not touch). The 50 m rim adds 0.10 km to each
+  footprint dimension and slightly *raises* the reported volume (bigger ground slab,
+  and for Chongqing a bigger terrain block too), so the volume column is not a
+  clean measure of what the cap removed.
+- Rejected and removed, recorded so it is not re-attempted: the near-building
+  merge (grow every footprint 2 m apart by half the gap so the boolean union fuses
+  them). Measured on the same nine cities it added 2.5 % triangles (New York
+  +5.3 %), 3-8 % volume, removed no building at all, and ate 1 m per side from the
+  already 1-3 m alleys of the dense districts — the density problem survived and
+  the model got heavier. Numbers and the reasoning are at the top of
+  `docs/plans/2026-11-04-merge-near-buildings-handoff.md`.
+- `render_previews.py` redrawn for legibility: the plates go from 880 x 520 to
+  1440 x 960 at 2x supersampling (4464 x 2324 pages, ~1.6x linear), the four
+  obliques share one scale taken from the union of their projected extents so they
+  read as rotations of one object, and the drawing is centred in its plate instead
+  of sitting against the left margin. Titles, captions and the footer scale with the
+  page; captions are bilingual; the plan view gets a north arrow and a 1 km scale
+  bar in the margin its square shape leaves free. `--panel`, `--ss`, `--fast` and
+  `--svg` were added, and the whole set now renders in about a minute (the old
+  estimate of ten was stale).
+- The preview footer is one line in three zones: the credit (footprint, version,
+  OSM attribution) on the left, the height ramp centred under the middle column
+  (its width shrinks to clear both texts), and the building/triangle/tallest
+  stats on the right. The header keeps only the title, and its height is
+  measured from the font sizes, so the rule can no longer cut through the text
+  once the page grows past 4 k pixel. Plate captions are bold and 1.3x larger.
+- Fixed the height legend: the bar is sampled along the perceptual axis
+  `(h / 660)^0.6` but the ticks were placed linearly, so "60 m" sat where the
+  colour of 185 m was drawn. Ticks now land on their own colour (0 / 60 / 200 /
+  660 m at 0 / 0.27 / 0.46 / 1.0 of the bar), and the caption that used to sit
+  beside the bar is gone — it repeated the range the right-hand tick already
+  gives. The same wording was dropped from the three overview titles, which now
+  read "9 城核心区 · 俯视" instead of "· 俯视 · 同一把高度色标".
+- `--svg` writes one flat-shaded vector plate per view for print or for a figure
+  that has to zoom. It is opt-in because one London view is 12-18 MB of polygons
+  (Changsha 4-6 MB) and a full set would be 400 MB; the raster plates are the
+  dataset's preview format.
+- `scratch/build_city_cores.py` had an unterminated docstring, so the dataset
+  assembler had not been runnable since the Paris removal; it now parses and also
+  records `density_thinned` per layout. `scratch/audit_six.py` walks both batch
+  roots (nine cores) and prints the measured footprint.
+
 - The city-core dataset grew from six to nine: `models/city_cores` now also
   holds 4 × 4 km cores for New York (Midtown), Los Angeles (Downtown) and London
   (City + South Bank), generated with the same pipeline and parameters as the

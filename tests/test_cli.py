@@ -208,6 +208,90 @@ def test_cli_parser_accepts_the_edge_taper_flag():
     assert tapered.terrain_edge_taper == pytest.approx(250.0)
 
 
+def test_cli_parser_accepts_the_terrain_water_level_flag():
+    args = build_parser().parse_args(["--bbox", "1,2,3,4", "--out", "x"])
+    assert args.terrain_water_level is None
+    assert args.terrain_water_fill_islands is False
+    assert args.terrain_water_bank_clearance == pytest.approx(0.0)
+
+    flooded = build_parser().parse_args(
+        [
+            "--bbox",
+            "1,2,3,4",
+            "--out",
+            "x",
+            "--terrain-water-level",
+            "175",
+            "--terrain-water-fill-islands",
+            "--terrain-water-bank-clearance",
+            "5",
+        ]
+    )
+    assert flooded.terrain_water_level == pytest.approx(175.0)
+    assert flooded.terrain_water_fill_islands is True
+    assert flooded.terrain_water_bank_clearance == pytest.approx(5.0)
+
+
+def test_cli_parser_accepts_the_density_cap_flags():
+    args = build_parser().parse_args(["--bbox", "1,2,3,4", "--out", "x"])
+    assert args.density_cell == pytest.approx(0.0)
+    assert args.density_max == 0
+
+    capped = build_parser().parse_args(
+        ["--bbox", "1,2,3,4", "--out", "x", "--density-cell", "100", "--density-max", "10"]
+    )
+    assert capped.density_cell == pytest.approx(100.0)
+    assert capped.density_max == 10
+
+
+def test_cli_passes_the_density_cap_to_the_request(tmp_path, monkeypatch):
+    import app.cli as cli_module
+
+    captured: dict[str, object] = {}
+
+    class Stop(Exception):
+        pass
+
+    def spy(request, settings, out, progress_cb=None):
+        captured["cell"] = request.options.density_cell_m
+        captured["max"] = request.options.density_cell_max_buildings
+        raise Stop
+
+    monkeypatch.setattr(cli_module, "run_pipeline", spy)
+    with pytest.raises(Stop):
+        main(
+            [
+                "--bbox",
+                BBOX,
+                "--out",
+                str(tmp_path / "job"),
+                "--data-dir",
+                str(tmp_path / "data"),
+                "--density-cell",
+                "100",
+                "--density-max",
+                "10",
+            ]
+        )
+    assert captured["cell"] == pytest.approx(100.0)
+    assert captured["max"] == 10
+
+
+def test_generate_options_reject_an_oversized_density_cap():
+    from pydantic import ValidationError
+
+    from app.models.schemas import GenerateOptions
+
+    with pytest.raises(ValidationError):
+        GenerateOptions(density_cell_m=2000.0)
+    with pytest.raises(ValidationError):
+        GenerateOptions(density_cell_max_buildings=-1)
+
+    options = GenerateOptions(density_cell_m=100.0, density_cell_max_buildings=10)
+    assert options.density_cell_m == pytest.approx(100.0)
+    assert GenerateOptions().density_cell_max_buildings == 0
+
+
 def test_terrain_options_reject_an_oversized_taper():
     from pydantic import ValidationError
 

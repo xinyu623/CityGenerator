@@ -72,6 +72,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--embed", type=float, default=0.5, help="bottom embed depth, m")
     parser.add_argument("--ground-margin", type=float, default=0.0, help="base margin, m")
+    parser.add_argument(
+        "--density-cell",
+        type=float,
+        default=0.0,
+        help=(
+            "grid size for the density cap, m (0 disables it); use it with "
+            "--density-max to thin districts the source data over-populates"
+        ),
+    )
+    parser.add_argument(
+        "--density-max",
+        type=int,
+        default=0,
+        help=(
+            "max buildings kept inside one --density-cell square, chosen by mass; "
+            "a cell holding more loses its lightest buildings"
+        ),
+    )
     parser.add_argument("--simplify", type=float, default=0.05, help="footprint simplification, m")
     parser.add_argument("--min-area", type=float, default=4.0, help="minimum footprint area, m2")
     parser.add_argument("--terrain-resolution", type=float, default=30.0, help="DEM grid spacing, m")
@@ -82,6 +100,33 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "ramp the terrain down to z=0 over this many metres outside the selection, "
             "so the model border is flush with a CFD ground plane instead of a wall"
+        ),
+    )
+    parser.add_argument(
+        "--terrain-water-level",
+        type=float,
+        default=None,
+        help=(
+            "absolute DEM elevation (m) of a flat water surface; terrain cells below it "
+            "are raised to it, so a river valley reads as a flat plane (e.g. 175 for "
+            "Chongqing). Omit to keep the raw DEM channel"
+        ),
+    )
+    parser.add_argument(
+        "--terrain-water-fill-islands",
+        action="store_true",
+        help=(
+            "with --terrain-water-level, also flatten land components that are fully "
+            "enclosed by the water surface (shoals/islands)"
+        ),
+    )
+    parser.add_argument(
+        "--terrain-water-bank-clearance",
+        type=float,
+        default=0.0,
+        help=(
+            "with --terrain-water-level, lower every cell below water_level + this "
+            "many metres to the water surface, clearing low banks/peninsulas"
         ),
     )
     parser.add_argument("--no-terrain", action="store_true", help="use a flat 1 m slab instead of the DEM")
@@ -202,11 +247,16 @@ def main(argv: list[str] | None = None) -> int:
             "simplify_m": args.simplify,
             "min_building_area_m2": args.min_area,
             "min_building_height_m": args.min_height,
+            "density_cell_m": args.density_cell,
+            "density_cell_max_buildings": args.density_max,
             "height_overrides": height_overrides,
             "terrain": {
                 "enabled": not args.no_terrain,
                 "resolution_m": args.terrain_resolution,
                 "edge_taper_m": args.terrain_edge_taper,
+                "water_level_m": args.terrain_water_level,
+                "water_fill_islands": args.terrain_water_fill_islands,
+                "water_bank_clearance_m": args.terrain_water_bank_clearance,
             },
         },
         refresh=args.refresh,

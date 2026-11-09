@@ -231,6 +231,9 @@ class PreparedBuildings:
     items: list[PreparedBuilding] = field(default_factory=list)
     bounds: tuple[float, float, float, float] | None = None
     skipped: int = 0
+    # Buildings dropped by the density cap (see ``_thin_dense_cells``). They are
+    # not "skipped": nothing was wrong with them, the cell simply held too many.
+    thinned: int = 0
     height_sources: dict[str, int] = field(default_factory=dict)
     height_sampling: dict[str, Any] = field(default_factory=dict)
     warnings: list[Issue] = field(default_factory=list)
@@ -254,6 +257,7 @@ class BuildResult:
     height_sources: dict[str, int] = field(default_factory=dict)
     height_sampling: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
+    thinned: int = 0
     warnings: list[Issue] = field(default_factory=list)
     # Every record is appended only after the shell report accepted its shell,
     # so this is true by construction; recording it keeps the metadata writer
@@ -676,6 +680,8 @@ def prepare_buildings(
     max_height_m: float = 300.0,
     min_height_m: float = 2.0,
     height_overrides: Mapping[str, float] | None = None,
+    density_cell_m: float = 0.0,
+    density_cell_max_buildings: int = 0,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> PreparedBuildings:
@@ -685,6 +691,10 @@ def prepare_buildings(
     that local distribution (with jitter) instead of all getting the same
     default. A city block and a small town therefore end up with different, but
     locally plausible, skylines.
+
+    ``density_cell_m`` + ``density_cell_max_buildings`` cap the obstacle count
+    per grid cell: a cell holding more than the cap keeps only its heaviest
+    buildings. ``0`` in either one disables the cap.
     """
 
     result = PreparedBuildings()
@@ -859,6 +869,23 @@ def prepare_buildings(
                 count=counts["LEVELS_ONE_IGNORED"],
             )
         )
+    thinned = _thin_dense_cells(
+        result,
+        cell_m=float(density_cell_m),
+        max_per_cell=int(density_cell_max_buildings),
+    )
+    if thinned:
+        result.warnings.append(
+            Issue(
+                code="DENSITY_THINNED",
+                message=(
+                    f"{thinned} 栋建筑处于过密区域（{float(density_cell_m):g} m 网格内多于 "
+                    f"{int(density_cell_max_buildings)} 栋），已按体量优先只保留前 "
+                    f"{int(density_cell_max_buildings)} 栋"
+                ),
+                count=thinned,
+            )
+        )
     floating = _ground_unsupported_bases(result)
     if floating:
         result.warnings.append(
@@ -872,6 +899,67 @@ def prepare_buildings(
             )
         )
     return result
+
+
+def _density_rank(item: PreparedBuilding) -> tuple[float, float, float, str, int]:
+    """Survival order in an over-dense cell: heaviest first, then tallest.
+
+    The cap deletes; it must not decide which of 60 huts per hectare is a tower.
+    Ranking by mass (area x height) keeps the blocks that carry the obstacle
+    field and drops the sheds, and the id tail makes the choice deterministic.
+    """
+
+    return (
+        -float(item.area_m2 * item.height_m),
+        -float(item.height_m),
+        -float(item.area_m2),
+        str(item.osm_type),
+        int(item.osm_id),
+    )
+
+
+def _thin_dense_cells(
+    result: PreparedBuildings,
+    cell_m: float,
+    max_per_cell: int,
+) -> int:
+    """Drop buildings from every grid cell that holds more than ``max_per_cell``.
+
+    Density is the thing being fixed, so the extras are deleted rather than
+    enlarged: a district with 60 sheds per hectare is neither resolvable at a
+    4 km modelling scale nor worth 60 shells, while the survivors keep their real
+    footprint and height. ``bounds`` is deliberately left alone — the ground
+    slab still covers the whole selection, so a thinned cell becomes flat ground
+    instead of a hole in the base.
+    """
+
+    if cell_m <= 0.0 or max_per_cell <= 0 or not result.items:
+        return 0
+
+    groups: dict[tuple[int, int], list[int]] = {}
+    for index, item in enumerate(result.items):
+        point = item.polygon_local.centroid
+        key = (int(math.floor(point.x / cell_m)), int(math.floor(point.y / cell_m)))
+        groups.setdefault(key, []).append(index)
+
+    keep: set[int] = set()
+    removed_sources: Counter[str] = Counter()
+    for indices in groups.values():
+        if len(indices) <= max_per_cell:
+            keep.update(indices)
+            continue
+        ranked = sorted(indices, key=lambda index: _density_rank(result.items[index]))
+        keep.update(ranked[:max_per_cell])
+        removed_sources.update(result.items[index].height_source for index in ranked[max_per_cell:])
+
+    removed = len(result.items) - len(keep)
+    if removed <= 0:
+        return 0
+    result.items = [item for index, item in enumerate(result.items) if index in keep]
+    for source, count in removed_sources.items():
+        result.height_sources[source] = max(0, result.height_sources.get(source, 0) - count)
+    result.thinned += removed
+    return removed
 
 
 def _ground_unsupported_bases(result: PreparedBuildings) -> int:
@@ -958,6 +1046,7 @@ def extrude_prepared(
         height_sources=dict(prepared.height_sources),
         height_sampling=dict(prepared.height_sampling),
         skipped=prepared.skipped,
+        thinned=prepared.thinned,
         warnings=list(prepared.warnings),
     )
     counts: Counter[str] = Counter()
@@ -1079,6 +1168,8 @@ def build_meshes(
     height_slenderness_k: float = 8.0,
     max_height_m: float = 300.0,
     height_overrides: Mapping[str, float] | None = None,
+    density_cell_m: float = 0.0,
+    density_cell_max_buildings: int = 0,
     progress_cb: Callable[[int, int], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> BuildResult:
@@ -1099,6 +1190,8 @@ def build_meshes(
         height_slenderness_k=height_slenderness_k,
         max_height_m=max_height_m,
         height_overrides=height_overrides,
+        density_cell_m=density_cell_m,
+        density_cell_max_buildings=density_cell_max_buildings,
         cancel_event=cancel_event,
     )
     return extrude_prepared(
