@@ -18,12 +18,12 @@ export const MATERIALS = {
 };
 
 export const HEIGHT_RAMP = [
-  [0.0, "#DCD6CC"],
-  [0.1, "#CFC6B9"],
-  [0.25, "#ACA196"],
-  [0.45, "#7F756C"],
-  [0.7, "#4F4842"],
-  [1.0, "#241F1B"],
+  [0.0, "#E7E2D9"],
+  [0.1, "#D9D2C8"],
+  [0.25, "#C4BBAF"],
+  [0.45, "#A99F93"],
+  [0.7, "#8A8176"],
+  [1.0, "#6E655B"],
 ];
 
 function srgbToLinear(c) {
@@ -476,7 +476,7 @@ function cleanPreviewGeometry(state, geometry) {
 function applyRamp(state, geometry, minY, maxY) {
   const position = geometry.getAttribute("position");
   if (!position) return geometry;
-  const colors = rampColors(position.array, minY, maxY, 1.6);
+  const colors = rampColors(position.array, minY, maxY, 1.25);
   geometry.setAttribute("color", new state.THREE.Float32BufferAttribute(colors, 3));
   return geometry;
 }

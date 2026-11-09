@@ -111,13 +111,13 @@ def test_preview_materials_are_graphite_with_vertex_colours(tmp_path):
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
-def test_height_ramp_runs_from_light_paper_grey_to_near_black(tmp_path):
+def test_height_ramp_runs_from_paper_grey_to_dark_graphite(tmp_path):
     payload = _viewer_payload(tmp_path)
     assert [stop[1] for stop in payload["ramp"]] == [
-        "#DCD6CC", "#CFC6B9", "#ACA196", "#7F756C", "#4F4842", "#241F1B"
+        "#E7E2D9", "#D9D2C8", "#C4BBAF", "#A99F93", "#8A8176", "#6E655B"
     ]
     assert [stop[0] for stop in payload["ramp"]] == [0.0, 0.1, 0.25, 0.45, 0.7, 1.0]
-    assert lum(payload["at0"]) > lum(payload["at1"]) * 20
+    assert lum(payload["at0"]) > lum(payload["at1"]) * 4
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
