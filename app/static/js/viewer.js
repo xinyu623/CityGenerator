@@ -127,7 +127,7 @@ async function createRuntime() {
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.95;
+  renderer.toneMappingExposure = 0.82;
   renderer.shadowMap.enabled = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.replaceChildren(renderer.domElement);
@@ -172,10 +172,10 @@ async function createRuntime() {
     // Three.js lights below still give a clean studio look without an HDRI.
   }
 
-  const hemisphere = new THREE.HemisphereLight(0xfffcf6, 0x6e675f, 0.5);
+  const hemisphere = new THREE.HemisphereLight(0xfffcf6, 0x6e675f, 0.42);
   scene.add(hemisphere);
 
-  const keyLight = new THREE.DirectionalLight(0xfff6e8, 1.9);
+  const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.45);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(2048, 2048);
   keyLight.shadow.bias = -0.0004;
@@ -184,7 +184,7 @@ async function createRuntime() {
   scene.add(keyLight);
   scene.add(keyLight.target);
 
-  const fillLight = new THREE.DirectionalLight(0xb9c4cc, 0.35);
+  const fillLight = new THREE.DirectionalLight(0xb9c4cc, 0.3);
   fillLight.position.set(-1.6, 1.1, -1.1);
   scene.add(fillLight);
 

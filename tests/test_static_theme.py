@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[1]
 CSS = (ROOT / "app" / "static" / "css" / "app.css").read_text(encoding="utf-8")
 
@@ -81,8 +79,16 @@ def test_text_contrast_on_paper_panels():
 
 
 def test_map_tiles_are_desaturated_and_the_backdrop_is_paper():
-    assert "--map-filter: saturate(0.55)" in CSS
+    assert "--map-filter: saturate(0.35)" in CSS
     assert re.search(r"\.leaflet-container\s*\{[^}]*background:\s*var\(--bg\)", CSS)
+
+
+def test_disabled_primary_button_drops_the_warm_fill():
+    block = re.search(r"\.button\.primary:disabled\s*\{[^}]*\}", CSS)
+    assert block is not None, "缺少禁用态主按钮规则"
+    rule = block.group(0)
+    assert "var(--panel-2)" in rule
+    assert "var(--accent)" not in rule
 
 
 MAP = (ROOT / "app" / "static" / "js" / "map.js").read_text(encoding="utf-8")

@@ -13,7 +13,7 @@
   --accent-ink: #fff6f0;
   --danger: #8a3a2a;
   --warn: #6e5424;
-  --map-filter: saturate(0.55) contrast(0.96) brightness(1.03);
+  --map-filter: saturate(0.35) contrast(0.95) brightness(1.02);
   --shadow: 0 12px 30px rgba(30, 27, 22, 0.1);
   --radius: 10px;
   --radius-sm: 8px;
@@ -79,7 +79,6 @@ code {
   color: var(--ink);
   background: var(--header);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(14px);
   z-index: 30;
 }
 
@@ -183,10 +182,9 @@ code {
   max-width: calc(100% - 32px);
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
 }
 
 .map-hint {
@@ -207,11 +205,10 @@ code {
   max-width: calc(100% - 32px);
   padding: 12px 14px;
   border: 1px solid rgba(246, 244, 239, 0.14);
-  border-radius: 15px;
+  border-radius: var(--radius);
   background: rgba(33, 29, 25, 0.92);
   color: #f6f4ef;
   box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
 }
 
 .readout-item {
@@ -268,7 +265,6 @@ code {
   color: var(--muted);
   font-size: 11px;
   box-shadow: none;
-  backdrop-filter: blur(8px);
 }
 
 .dot {
@@ -542,7 +538,7 @@ code {
 }
 
 .button:hover:not(:disabled) {
-  border-color: var(--line-strong);
+  border-color: var(--muted);
   box-shadow: 0 6px 18px rgba(30, 27, 22, 0.1);
   transform: translateY(-1px);
 }
@@ -569,6 +565,15 @@ code {
   box-shadow: 0 12px 28px rgba(30, 27, 22, 0.24);
 }
 
+/* A disabled action is not an action: it drops the warm fill instead of fading it. */
+.button.primary:disabled {
+  opacity: 1;
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--panel-2);
+  box-shadow: none;
+}
+
 .button.ghost {
   background: rgba(246, 244, 239, 0.82);
 }
@@ -589,7 +594,7 @@ code {
   width: 34px;
   height: 34px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   background: var(--panel-2);
   font-size: 22px;
@@ -651,10 +656,11 @@ code {
 .inline-error {
   margin-top: 10px;
   padding: 9px 11px;
-  border: 1px solid #e4cdc4;
-  border-radius: 9px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--danger);
+  border-radius: var(--radius-sm);
   color: var(--danger);
-  background: #f6edea;
+  background: var(--panel-2);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -702,15 +708,17 @@ code {
 
 .warning-item {
   padding: 8px 10px;
-  border: 1px solid #e4d8be;
-  border-radius: 9px;
-  color: var(--warn);
-  background: #f7f0e0;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--warn);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  background: var(--panel-2);
   font-size: 11.5px;
   line-height: 1.45;
 }
 
 .warning-item strong {
+  color: var(--warn);
   font-size: 10px;
   letter-spacing: 0.05em;
 }
