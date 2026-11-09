@@ -1,21 +1,69 @@
-const COLORS = {
-  city: 0xeee4d3,
-  buildings: 0xf2ebdc,
-  // Ground and walls are the same warm-white surface: the darker sand tone made
-  // the terrain slab read as a separate object instead of the city's base.
-  ground: 0xf2ebdc,
-  wall: 0xf2ebdc,
-  bottom: 0xa8967e,
-  plate: 0xf8f2e6,
+export const COLORS = {
+  city: 0xffffff,
+  buildings: 0xffffff,
+  ground: 0xffffff,
+  wall: 0xffffff,
+  // The underside is the section cut: it stays flat graphite instead of taking
+  // the height ramp, which would paint the whole slab the lightest stop.
+  bottom: 0x6e675f,
+  plate: 0xf2efe9,
 };
 
 export const MATERIALS = {
-  city: { color: COLORS.city, roughness: 0.9, metalness: 0.0 },
-  buildings: { color: COLORS.buildings, roughness: 0.88, metalness: 0.0 },
-  ground: { color: COLORS.ground, roughness: 0.88, metalness: 0.0 },
-  wall: { color: COLORS.wall, roughness: 0.88, metalness: 0.0 },
-  bottom: { color: COLORS.bottom, roughness: 0.98, metalness: 0.0 },
+  city: { color: COLORS.city, vertexColors: true, roughness: 0.9, metalness: 0.0 },
+  buildings: { color: COLORS.buildings, vertexColors: true, roughness: 0.88, metalness: 0.0 },
+  ground: { color: COLORS.ground, vertexColors: true, roughness: 0.88, metalness: 0.0 },
+  wall: { color: COLORS.wall, vertexColors: true, roughness: 0.88, metalness: 0.0 },
+  bottom: { color: COLORS.bottom, vertexColors: false, roughness: 0.95, metalness: 0.0 },
 };
+
+export const HEIGHT_RAMP = [
+  [0.0, "#DCD6CC"],
+  [0.1, "#CFC6B9"],
+  [0.25, "#ACA196"],
+  [0.45, "#7F756C"],
+  [0.7, "#4F4842"],
+  [1.0, "#241F1B"],
+];
+
+function srgbToLinear(c) {
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+// The stops are authored as sRGB hex; vertex colours are consumed in linear
+// space, so convert once and interpolate between the linear triples.
+const RAMP_LINEAR = HEIGHT_RAMP.map(([t, hex]) => [
+  t,
+  [1, 3, 5].map((i) => srgbToLinear(parseInt(hex.slice(i, i + 2), 16) / 255)),
+]);
+
+export function rampColor(t) {
+  const clamped = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
+  for (let i = 1; i < RAMP_LINEAR.length; i += 1) {
+    const [t1, c1] = RAMP_LINEAR[i];
+    const [t0, c0] = RAMP_LINEAR[i - 1];
+    if (clamped <= t1) {
+      const k = t1 === t0 ? 0 : (clamped - t0) / (t1 - t0);
+      return [0, 1, 2].map((j) => c0[j] + (c1[j] - c0[j]) * k);
+    }
+  }
+  return RAMP_LINEAR[RAMP_LINEAR.length - 1][1];
+}
+
+export function rampColors(positions, minY, maxY) {
+  const span = maxY - minY;
+  const out = new Float32Array(positions.length);
+  for (let i = 0; i < positions.length; i += 3) {
+    // A flat selection has no height range to normalise against; every vertex
+    // takes the lightest stop so the model reads as light ground, not black.
+    const t = span >= 1 ? (positions[i + 1] - minY) / span : 0;
+    const [r, g, b] = rampColor(t);
+    out[i] = r;
+    out[i + 1] = g;
+    out[i + 2] = b;
+  }
+  return out;
+}
 
 export function legendGroups(counts) {
   // Ground and walls share one material, so they share one swatch and one
@@ -79,7 +127,7 @@ async function createRuntime() {
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.78;
+  renderer.toneMappingExposure = 0.95;
   renderer.shadowMap.enabled = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.replaceChildren(renderer.domElement);
@@ -124,10 +172,10 @@ async function createRuntime() {
     // Three.js lights below still give a clean studio look without an HDRI.
   }
 
-  const hemisphere = new THREE.HemisphereLight(0xfffdf5, 0xb7aa94, 0.62);
+  const hemisphere = new THREE.HemisphereLight(0xfffcf6, 0x6e675f, 0.5);
   scene.add(hemisphere);
 
-  const keyLight = new THREE.DirectionalLight(0xfff1dc, 1.65);
+  const keyLight = new THREE.DirectionalLight(0xfff6e8, 1.9);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(2048, 2048);
   keyLight.shadow.bias = -0.0004;
@@ -136,11 +184,11 @@ async function createRuntime() {
   scene.add(keyLight);
   scene.add(keyLight.target);
 
-  const fillLight = new THREE.DirectionalLight(0xd7e2e8, 0.42);
+  const fillLight = new THREE.DirectionalLight(0xb9c4cc, 0.35);
   fillLight.position.set(-1.6, 1.1, -1.1);
   scene.add(fillLight);
 
-  const rimLight = new THREE.DirectionalLight(0xffffff, 0.34);
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.25);
   rimLight.position.set(0.2, 1.4, -1.8);
   scene.add(rimLight);
 
@@ -236,9 +284,9 @@ function buildPedestal(state, box) {
     : new THREE.BoxGeometry(width, height, depth);
   const material = new THREE.MeshStandardMaterial({
     color: COLORS.plate,
-    roughness: 0.78,
+    roughness: 0.85,
     metalness: 0.0,
-    envMapIntensity: 0.35,
+    envMapIntensity: 0.25,
   });
   const pedestal = new THREE.Mesh(geometry, material);
   pedestal.position.set(center.x, -height / 2 - 0.01, center.z);
@@ -253,9 +301,9 @@ function buildPedestal(state, box) {
   canvas.height = 256;
   const context = canvas.getContext("2d");
   const gradient = context.createRadialGradient(128, 128, 8, 128, 128, 126);
-  gradient.addColorStop(0, "rgba(63, 53, 39, 0.34)");
-  gradient.addColorStop(0.55, "rgba(63, 53, 39, 0.12)");
-  gradient.addColorStop(1, "rgba(63, 53, 39, 0)");
+  gradient.addColorStop(0, "rgba(48, 43, 37, 0.26)");
+  gradient.addColorStop(0.55, "rgba(48, 43, 37, 0.10)");
+  gradient.addColorStop(1, "rgba(48, 43, 37, 0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, 256, 256);
   const texture = new THREE.CanvasTexture(canvas);
@@ -421,6 +469,14 @@ function cleanPreviewGeometry(state, geometry) {
   return cleaned;
 }
 
+function applyRamp(state, geometry, minY, maxY) {
+  const position = geometry.getAttribute("position");
+  if (!position) return geometry;
+  const colors = rampColors(position.array, minY, maxY);
+  geometry.setAttribute("color", new state.THREE.Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
 function applyWireframe(state) {
   state.modelGroup.traverse((child) => {
     if (!child.isMesh) return;
@@ -555,7 +611,7 @@ async function loadModels(urls, state, patches = null) {
       geometry.computeBoundingSphere();
 
       // One material per patch group when the ranges were applied; a job
-      // without patches renders the whole city in one warm-white material.
+      // without patches renders the whole city in the city graphite material.
       const previewGeometry = cleanPreviewGeometry(state, geometry);
       const config = MATERIALS[kind] ?? MATERIALS.city;
       const material = new state.THREE.MeshStandardMaterial({
@@ -574,6 +630,15 @@ async function loadModels(urls, state, patches = null) {
 
     const box = new state.THREE.Box3().setFromObject(state.modelGroup);
     if (box.isEmpty()) throw new Error("模型为空");
+
+    // One height scale for every patch mesh: the ramp is keyed to the whole
+    // model's vertical extent, so the ground slab and the walls share it. The
+    // section-cut underside keeps its flat graphite colour.
+    for (const child of state.modelGroup.children) {
+      if (!child.isMesh || child.material.vertexColors !== true) continue;
+      applyRamp(state, child.geometry, box.min.y, box.max.y);
+    }
+
     status.textContent = "布置展台…";
     const plate = buildPedestal(state, box);
     fitCamera(state, box, plate, triangles);
