@@ -113,7 +113,7 @@ For each footprint, height is resolved in this order:
    than that base: when the draw lands below `base + level_height_m`, the height
    is raised to that floor (one storey above the base) and records the
    `base_floor` rule. Every sampled building records the rule that produced its
-   height (`similarity`, `type_cap`, `conservative_cap`, or `base_floor`) as
+   height (`similarity`, `type_cap`, `width_cap`, `conservative_cap`, or `base_floor`) as
    `height_rule` in `buildings.geojson`.
    `metadata.json → buildings.height_sampling` records the pool size, the
    weights, the rule counts (`sampled`, `sampled_buildings`, `rules`), the
@@ -128,11 +128,23 @@ For each footprint, height is resolved in this order:
    `too_few_known_heights`, the counters are zero, and the configured
    parameters stay in place.
 
+   **Width bound (always on).** A sampled height is also capped at
+   `8 × narrow side of the footprint's minimum rotated rectangle`
+   (`heights.WIDTH_SLENDERNESS_K`). The area bound below cannot see this case:
+   a 13 m × 49 m slab has 617 m² of footprint, so `8·√area` allows 199 m, and a
+   cluster of such samples extrudes into a row of 15:1 blades that reads as
+   columns. The width bound holds a 13 m slab to 104 m while leaving a 44 m
+   tower untouched, and it never raises a height. It applies to sampled heights
+   only — a tagged 188 m tower keeps its height — and it is recorded as the
+   `width_cap` rule and `slenderness_width_k` in the sampling metadata.
+
    **Conservative mode.** `--conservative-heights`
    (`CITYGEN_HEIGHT_SAMPLING_CONSERVATIVE=true`) also caps every sampled height
    at `k × sqrt(footprint area)`, `k = 8` by default (`--slenderness-k`,
    `CITYGEN_HEIGHT_SAMPLING_SLENDERNESS_K`). It never raises a height; it only
-   trims the slenderness tail for users who want a calmer skyline.
+   trims the slenderness tail for users who want a calmer skyline. Because the
+   narrow side is never longer than `sqrt(area)`, the width bound is at least as
+   tight, so this flag only changes a draw when the width is unknown.
 4. **Default.** `default_height_m` (25 m) when too few tagged heights exist.
 
 To check a finished job, run

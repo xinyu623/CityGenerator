@@ -396,8 +396,10 @@ Useful defaults:
 - Default height: `25 m` for the rare selection that has too few tagged heights;
   otherwise untagged buildings sample the local OSM height distribution from
   footprints within `0.5–2×` their area, weighted by area and building type
-  (`height_sampling_jitter = 10 %`). Level height: `3 m`. Optional conservative
-  bound: `height ≤ 8·√area` (`height_sampling_conservative`).
+  (`height_sampling_jitter = 10 %`). Level height: `3 m`. Every sampled height is
+  capped at `8×` the footprint's narrow side, so a long thin slab cannot extrude
+  into a blade; optional conservative bound: `height ≤ 8·√area`
+  (`height_sampling_conservative`), which the width cap already dominates.
 - Bottom embed depth: `0.5 m`; polygon simplification: `0.05 m`.
 - Ground slab thickness: `1 m`.
 - Patches: `patches.json` ground tolerance `0.05 m` and normal agreement `0.9`.

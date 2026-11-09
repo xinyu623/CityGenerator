@@ -202,6 +202,47 @@ def test_height_sampler_prefers_heights_from_similar_footprints():
     assert 4.0 not in large
 
 
+def test_width_caps_a_sampled_height_on_a_thin_slab():
+    sampler = HeightSampler([(188.0, 773.0)], jitter=0.0, seed=0)
+
+    drawn = sampler.draw(617.0, "residential", width_m=12.6)
+
+    # 8 x 12.6 m; the sqrt(area) bound (8 x 24.8) would not have caught it.
+    assert drawn.height_m == pytest.approx(8.0 * 12.6)
+    assert drawn.rule == "width_cap"
+
+
+def test_width_cap_leaves_a_wide_tower_alone():
+    sampler = HeightSampler([(188.0, 773.0)], jitter=0.0, seed=0)
+
+    drawn = sampler.draw(617.0, "residential", width_m=44.0)
+
+    assert drawn.height_m == pytest.approx(188.0)
+    assert drawn.rule == "similarity"
+
+
+def test_width_cap_is_inactive_when_no_width_is_supplied():
+    sampler = HeightSampler([(188.0, 773.0)], jitter=0.0, seed=0)
+
+    assert sampler.draw(617.0, "residential").height_m == pytest.approx(188.0)
+
+
+def test_conservative_area_bound_still_applies_with_the_width_cap_off():
+    sampler = HeightSampler(
+        [(250.0, 617.0)],
+        jitter=0.0,
+        seed=0,
+        conservative=True,
+        slenderness_k=8.0,
+        slenderness_width_k=0.0,
+    )
+
+    drawn = sampler.draw(617.0, "residential")
+
+    assert drawn.height_m == pytest.approx(8.0 * math.sqrt(617.0))
+    assert drawn.rule == "conservative_cap"
+
+
 def test_height_sampler_weights_the_closer_observation_inside_the_band():
     sampler = HeightSampler(
         [KnownHeight(9.0, 700.0, "yes"), KnownHeight(250.0, 1300.0, "yes")],

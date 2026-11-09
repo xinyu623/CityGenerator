@@ -28,6 +28,13 @@ AREA_BANDWIDTH_LOG = 0.5
 AREA_RATIO_MIN = 0.5
 AREA_RATIO_MAX = 2.0
 
+# A sampled height is also bounded by the footprint's narrow side: a 13 m deep
+# slab extruded to 190 m is a 15:1 blade, and a cluster of them reads as a row
+# of columns. ``height <= 8 * narrow_side`` keeps a 13 m slab under 104 m and
+# leaves a 44 m tower untouched. The sqrt(area) bound above cannot see this,
+# because a long thin slab has plenty of area.
+WIDTH_SLENDERNESS_K = 8.0
+
 # Default ceiling for a resolved height. A supertall selection (Lujiazui's 632 m
 # Shanghai Tower, Beijing's 528 m CITIC Tower) raises it per run so a tagged
 # landmark keeps its recorded height; sampled heights keep their own 300 m cap,
@@ -339,6 +346,11 @@ class HeightSampler:
     ``conservative`` adds an optional geometric plausibility bound,
     ``height <= slenderness_k * sqrt(area)``, which trims the slenderness tail
     for users who want a calmer skyline. It never raises a height.
+
+    Independently of ``conservative``, a draw made with ``width_m`` is capped at
+    ``slenderness_width_k * width_m``: the narrow side of the footprint is what
+    makes an extruded box read as a blade, and ``sqrt(area)`` cannot see it.
+    The cap only ever lowers a sampled height; a tagged height is untouched.
     """
 
     def __init__(
@@ -349,6 +361,7 @@ class HeightSampler:
         seed: int = 0,
         conservative: bool = False,
         slenderness_k: float = 8.0,
+        slenderness_width_k: float = WIDTH_SLENDERNESS_K,
     ) -> None:
         rows: list[tuple[float, float, str]] = []
         for item in known:
@@ -391,6 +404,7 @@ class HeightSampler:
         self._rng = random.Random(int(seed))
         self._conservative = bool(conservative)
         self._slenderness_k = max(0.0, float(slenderness_k))
+        self._slenderness_width_k = max(0.0, float(slenderness_width_k))
         # Draws that had to fall back to the weighted pool because the 0.5-2x
         # footprint band held no observation; a diagnostic for sparse tags.
         self.band_fallbacks = 0
@@ -464,6 +478,8 @@ class HeightSampler:
         self,
         area_m2: float | None = None,
         building_type: str | None = None,
+        *,
+        width_m: float | None = None,
     ) -> SampledHeight:
         """One height in metres plus the rule that produced it."""
 
@@ -490,4 +506,14 @@ class HeightSampler:
                 if value > bound:
                     value = bound
                     rule = "conservative_cap"
+        if self._slenderness_width_k > 0.0 and width_m is not None:
+            try:
+                width = float(width_m)
+            except (TypeError, ValueError):
+                width = 0.0
+            if width > 0.0:
+                bound = self._slenderness_width_k * width
+                if value > bound:
+                    value = bound
+                    rule = "width_cap"
         return SampledHeight(height_m=min(300.0, max(2.0, value)), rule=rule)

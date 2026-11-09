@@ -575,7 +575,9 @@ def test_build_meshes_forwards_the_conservative_sampling_settings():
     )
 
     assert built.height_sampling["conservative"] is True
-    assert any(record.height_rule == "conservative_cap" for record in built.records)
+    assert any(
+        record.height_rule in {"conservative_cap", "width_cap"} for record in built.records
+    )
 
 
 def test_multipart_buildings_count_once_in_the_sampling_tail():
@@ -601,7 +603,7 @@ def test_multipart_buildings_count_once_in_the_sampling_tail():
     assert prepared.height_sampling["sampled_buildings"] == 1
 
 
-def test_conservative_sampling_is_opt_in():
+def test_width_cap_applies_by_default_and_conservative_is_recorded():
     projector = projector_for_bbox(28.20, 112.90, 28.21, 112.91)
     features = [
         _feature(1, {"building": "yes", "height": "250"}, 0.000),
@@ -618,14 +620,20 @@ def test_conservative_sampling_is_opt_in():
         height_slenderness_k=8.0,
     )
 
+    loose_building = next(item for item in loose.items if item.osm_id == 2)
     tight_building = next(item for item in tight.items if item.osm_id == 2)
-    assert tight_building.height_rule == "conservative_cap"
-    assert tight_building.height_m < 250.0
+    # The width bound is on by default, and on any footprint it is at least as
+    # tight as the sqrt(area) bound, so the conservative flag no longer changes
+    # the result where the width is known: both runs cap the 250 m draw.
+    assert loose_building.height_rule == "width_cap"
+    assert tight_building.height_rule in {"conservative_cap", "width_cap"}
+    assert loose_building.height_m == pytest.approx(tight_building.height_m)
+    assert loose_building.height_m < 250.0
+    assert loose.height_sampling["sampled_above_250m"] == 0
     assert tight.height_sampling["conservative"] is True
     assert tight.height_sampling["slenderness_k"] == pytest.approx(8.0)
     assert loose.height_sampling["conservative"] is False
     assert loose.height_sampling["pool_above_250m"] == 1
-    assert loose.height_sampling["sampled_above_250m"] == 1
 
 
 def test_tagged_low_rise_height_is_not_capped():
@@ -739,6 +747,7 @@ def test_height_sampling_metadata_has_one_shape_in_every_mode():
                 "area_weighted",
                 "conservative",
                 "slenderness_k",
+                "slenderness_width_k",
                 "pool_above_100m",
                 "pool_above_250m",
                 "sampled",

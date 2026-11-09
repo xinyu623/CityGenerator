@@ -34,6 +34,7 @@ from app.services.heights import (
     AREA_RATIO_MIN,
     GROUP_WEIGHT,
     TYPE_WEIGHT,
+    WIDTH_SLENDERNESS_K,
     HeightInfo,
     HeightSampler,
     KnownHeight,
@@ -550,6 +551,33 @@ def _known_height_pairs(
     return pairs
 
 
+def _footprint_width(polygons: Sequence[Polygon]) -> float:
+    """Narrow side of the largest part's minimum rotated rectangle, in metres.
+
+    The height sampler caps a sampled height at a multiple of this. Using the
+    largest part keeps a small annex from setting the width for the whole
+    building; a diagonal slab gets its true narrow side, not a bounding box.
+    """
+
+    if not polygons:
+        return 0.0
+    main = max(polygons, key=lambda polygon: polygon.area)
+    try:
+        rect = main.minimum_rotated_rectangle
+    except Exception:  # noqa: BLE001 - a broken ring must not fail the job
+        return 0.0
+    if rect.is_empty or rect.geom_type != "Polygon":
+        return 0.0
+    corners = list(rect.exterior.coords)[:4]
+    if len(corners) < 2:
+        return 0.0
+    sides = [
+        math.dist(corners[index], corners[(index + 1) % len(corners)])
+        for index in range(len(corners))
+    ]
+    return min(sides) if sides else 0.0
+
+
 def _sampling_metadata(
     known: Sequence[KnownHeight],
     *,
@@ -582,6 +610,7 @@ def _sampling_metadata(
         "area_weighted": bool(enabled and sampler is not None and sampler.area_weighted),
         "conservative": bool(conservative),
         "slenderness_k": float(slenderness_k),
+        "slenderness_width_k": float(WIDTH_SLENDERNESS_K),
         "pool_above_100m": sum(1 for item in known if item.height_m >= 100.0),
         "pool_above_250m": sum(1 for item in known if item.height_m >= 250.0),
         "sampled": 0,
@@ -734,7 +763,11 @@ def prepare_buildings(
         height_rule = ""
         if sampler is not None and height.source == "default":
             footprint_area_m2 = math.fsum(polygon.area for polygon in polygons)
-            sampled = sampler.draw(footprint_area_m2, feature.tags.get("building"))
+            sampled = sampler.draw(
+                footprint_area_m2,
+                feature.tags.get("building"),
+                width_m=_footprint_width(polygons),
+            )
             sampled_height = sampled.height_m
             height_rule = sampled.rule
             # A tagged min_height/building:min_level lifts the base; the draw is
