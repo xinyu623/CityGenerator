@@ -83,3 +83,16 @@ def test_text_contrast_on_paper_panels():
 def test_map_tiles_are_desaturated_and_the_backdrop_is_paper():
     assert "--map-filter: saturate(0.55)" in CSS
     assert re.search(r"\.leaflet-container\s*\{[^}]*background:\s*var\(--bg\)", CSS)
+
+
+MAP = (ROOT / "app" / "static" / "js" / "map.js").read_text(encoding="utf-8")
+
+
+def test_selection_outline_is_graphite_not_slate():
+    for old in ("#547883", "#7fa1aa"):
+        assert old not in MAP.lower()
+    assert MAP.count('"#544d45"') == 3
+
+
+def test_selection_outline_contrasts_with_the_paper_backdrop():
+    assert _ratio("#544d45", TOKENS["--bg"]) >= 3.0

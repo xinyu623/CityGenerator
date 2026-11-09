@@ -137,10 +137,10 @@ export function createMapController({ onChange, onError } = {}) {
       firstMarker = null;
     }
     selectionRect = L.rectangle(bounds, {
-      color: "#547883",
-      weight: 2,
+      color: "#544d45",
+      weight: 1.5,
       opacity: 0.95,
-      fillColor: "#7fa1aa",
+      fillColor: "#9a9286",
       fillOpacity: 0.13,
     }).addTo(map);
     selection = selectionFromBounds(bounds);
@@ -169,9 +169,9 @@ export function createMapController({ onChange, onError } = {}) {
       firstPoint = event.latlng;
       firstMarker = L.circleMarker(firstPoint, {
         radius: 5,
-        color: "#547883",
+        color: "#544d45",
         weight: 2,
-        fillColor: "#ffffff",
+        fillColor: "#fbfaf6",
         fillOpacity: 1,
       }).addTo(map);
       return;
@@ -191,10 +191,10 @@ export function createMapController({ onChange, onError } = {}) {
     const bounds = L.latLngBounds(firstPoint, event.latlng);
     if (!previewRect) {
       previewRect = L.rectangle(bounds, {
-        color: "#547883",
+        color: "#544d45",
         weight: 1.5,
         dashArray: "5 5",
-        fillColor: "#7fa1aa",
+        fillColor: "#9a9286",
         fillOpacity: 0.08,
       }).addTo(map);
     } else {
