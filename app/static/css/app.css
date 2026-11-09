@@ -13,7 +13,7 @@
   --accent-ink: #fff6f0;
   --danger: #8a3a2a;
   --warn: #6e5424;
-  --map-filter: saturate(0.35) contrast(0.95) brightness(1.02);
+  --map-filter: saturate(0.55) contrast(0.96) brightness(1.03);
   --shadow: 0 12px 30px rgba(30, 27, 22, 0.1);
   --radius: 10px;
   --radius-sm: 8px;
@@ -293,7 +293,7 @@ code {
 
 .sidebar::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background-clip: padding-box;
   background-color: var(--line-strong);
 }
@@ -462,6 +462,7 @@ code {
 .field input:focus,
 .field select:focus {
   border-color: var(--ink-soft);
+  background: #ffffff;
   box-shadow: 0 0 0 3px rgba(59, 54, 49, 0.1);
 }
 
@@ -567,7 +568,7 @@ code {
 
 /* A disabled action is not an action: it drops the warm fill instead of fading it. */
 .button.primary:disabled {
-  opacity: 1;
+  opacity: 0.62;
   border-color: var(--line);
   color: var(--muted);
   background: var(--panel-2);

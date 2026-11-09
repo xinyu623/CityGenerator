@@ -80,6 +80,18 @@ def _expected_stop(ramp, t: float) -> list[float]:
     return stops[-1][1]
 
 
+VIEWER_SOURCE = VIEWER_JS.read_text(encoding="utf-8")
+
+
+def test_the_height_ramp_is_wired_into_the_loaded_meshes():
+    # Losing either half of the wiring leaves vertexColors materials without a
+    # colour attribute, and three.js then renders the model black while every
+    # other test still passes.
+    assert "applyRamp(state, child.geometry, box.min.y, box.max.y)" in VIEWER_SOURCE
+    assert "child.material.vertexColors !== true" in VIEWER_SOURCE
+    assert "rampColors(position.array, minY, maxY, 0.65)" in VIEWER_SOURCE
+
+
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_preview_materials_are_graphite_with_vertex_colours(tmp_path):
     payload = _viewer_payload(tmp_path)
@@ -89,6 +101,10 @@ def test_preview_materials_are_graphite_with_vertex_colours(tmp_path):
     assert materials["ground"]["vertexColors"] is True
     assert materials["bottom"]["vertexColors"] is False
     assert materials["bottom"]["color"] == 0x6E675F
+    # The no-patches fallback renders through MATERIALS.city alone; it must take
+    # the same ramp, otherwise that path paints an all-white or all-black model.
+    assert materials["city"]["vertexColors"] is True
+    assert materials["city"]["color"] == 0xFFFFFF
     assert payload["colors"]["plate"] == 0xF2EFE9
 
 
@@ -98,6 +114,7 @@ def test_height_ramp_runs_from_light_paper_grey_to_near_black(tmp_path):
     assert [stop[1] for stop in payload["ramp"]] == [
         "#DCD6CC", "#CFC6B9", "#ACA196", "#7F756C", "#4F4842", "#241F1B"
     ]
+    assert [stop[0] for stop in payload["ramp"]] == [0.0, 0.1, 0.25, 0.45, 0.7, 1.0]
     assert lum(payload["at0"]) > lum(payload["at1"]) * 20
 
 

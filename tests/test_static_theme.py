@@ -50,9 +50,15 @@ def test_warm_accent_is_confined_to_the_primary_action():
         for selector in (":root", ".button.primary", ".progress-bar")
         for block in _blocks(selector)
     }
-    for hex_value in ("#a7472c", "#8f3b24"):
-        for match in re.finditer(hex_value, CSS.lower()):
-            assert css_block_at(match.start()).lower() in allowed, f"{hex_value} appears in a disallowed rule"
+    for pattern in (
+        r"#a7472c",
+        r"#8f3b24",
+        r"var\(--accent\)",
+        r"rgba?\(\s*167\s*,\s*71\s*,\s*44",
+    ):
+        for match in re.finditer(pattern, CSS.lower()):
+            block = css_block_at(match.start()).lower()
+            assert block in allowed, f"{match.group(0)} appears in a disallowed rule"
     assert "accent-color: var(--accent)" not in CSS
 
 
@@ -79,7 +85,7 @@ def test_text_contrast_on_paper_panels():
 
 
 def test_map_tiles_are_desaturated_and_the_backdrop_is_paper():
-    assert "--map-filter: saturate(0.35)" in CSS
+    assert "--map-filter: saturate(0.55)" in CSS
     assert re.search(r"\.leaflet-container\s*\{[^}]*background:\s*var\(--bg\)", CSS)
 
 
@@ -98,6 +104,12 @@ def test_selection_outline_is_graphite_not_slate():
     for old in ("#547883", "#7fa1aa"):
         assert old not in MAP.lower()
     assert MAP.count('"#544d45"') == 3
+
+
+def test_selection_fill_and_weight_are_pinned():
+    assert MAP.count('"#9a9286"') == 2
+    assert '"#fbfaf6"' in MAP
+    assert "weight: 1.5" in MAP
 
 
 def test_selection_outline_contrasts_with_the_paper_backdrop():

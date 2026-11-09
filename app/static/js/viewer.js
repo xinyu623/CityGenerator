@@ -50,13 +50,17 @@ export function rampColor(t) {
   return RAMP_LINEAR[RAMP_LINEAR.length - 1][1];
 }
 
-export function rampColors(positions, minY, maxY) {
+export function rampColors(positions, minY, maxY, gamma = 1) {
   const span = maxY - minY;
   const out = new Float32Array(positions.length);
   for (let i = 0; i < positions.length; i += 3) {
     // A flat selection has no height range to normalise against; every vertex
     // takes the lightest stop so the model reads as light ground, not black.
-    const t = span >= 1 ? (positions[i + 1] - minY) / span : 0;
+    const raw = span >= 1 ? (positions[i + 1] - minY) / span : 0;
+    // Height is normalised against the tallest tower, so the ordinary 10-60 m
+    // stock lands in the first ramp stop and the gradient disappears. A gamma
+    // below 1 lifts the low end while leaving both endpoints untouched.
+    const t = gamma === 1 ? raw : raw ** gamma;
     const [r, g, b] = rampColor(t);
     out[i] = r;
     out[i + 1] = g;
@@ -472,7 +476,7 @@ function cleanPreviewGeometry(state, geometry) {
 function applyRamp(state, geometry, minY, maxY) {
   const position = geometry.getAttribute("position");
   if (!position) return geometry;
-  const colors = rampColors(position.array, minY, maxY);
+  const colors = rampColors(position.array, minY, maxY, 0.65);
   geometry.setAttribute("color", new state.THREE.Float32BufferAttribute(colors, 3));
   return geometry;
 }
